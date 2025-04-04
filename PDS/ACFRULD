@@ -1,0 +1,238 @@
+
+ACF2 rule alteration process                   July 5, 2023
+                                        update March 29, 2024
+
+This process can clone a userid to a new userid within ACF2 rules.
+
+1.  Run ACFRULF - FILEAID job PGM=CAWABATC - with a specified
+    userid to see which rule library members contain that userid.
+    If this is to be used by the ACFRULE process then issue
+    "XDC" next to the job in JES and save the contents to a
+    sequential file.  See below for an example of specifying this file.
+
+    note: if "undoing" previous changes for a given date/initials
+          combination using process code "U" then...
+          run ACFRULF with a date/initials string such as these
+          rather than specifying a userid:
+          "03/28/24FL)"      two char initials with no gap
+          "03/28/24FML)"     three char initials with no gap
+          "03/28/24 FL)"     two char initials with gap
+          "03/28/24 FML)"    three char initials with gap
+
+2.  Alter ACFRULP with "from" and "to" userids.  Select which
+    process to perform:  clone, delete, or comment rule records -
+    further clarified below.  Also set other parameters.
+
+3.  Usually there is a rule for the userid being cloned.
+    ACFRULA will not update this rule as long as it matches the "from"
+    userid.   You should manually clone the rule for the "from" userid
+    into a rule for the "to" userid (within your standard ACF2 user
+    definition rule library) and update it prior to submitting ACFRULE.
+
+4.  Submit ACFRULE
+
+5.  See "After running" below
+
+
+General note for most processes:
+    Documentation comments are specified within ACF2 rule members
+        using "DA("
+        examples:     " DA(ADDED 07/04/23 FML)"
+                      " DA(DEL 07/04/23 FML)"
+
+Members
+  ACFCMP   ACF rule compile job
+  ACFCMPO  Built by ACFRULE
+  ACFRULE  Main job to submit.  Runs as ACFRULR.
+  ACFRULF  Fileaid job to search ACF2 libs for specific userid
+  ACFRULJ  Submitted by ACFRULE.  Runs as job ACFRULA.
+  ACFRULP  Input parm to ACFRULE process
+  ACFRUL1  program 1
+  ACFRUL2  program 2
+  ACFSUMH  ACFSUMO headers
+  ACFSUMO  ACFRULE run summary file
+
+
+After running, check:
+
+  Job ACFRULE to see if all libraries were matched.
+  Will issue messages and a condition code of 0002 if any issues.
+
+  Member ACFSUMO to see if any ACFRULE jobs had issues causing
+      incomplete changes
+
+After running, also submit:
+
+  ACFCMP to recompile the altered members.
+
+  If any LFP members were altered:
+  issue SDSF command   /F ACF2,Rebuild(LFP)
+
+
+Notes for step 1. above
+-----------------------
+The FILEAID job PGM=CAWABATC  loops through libraries and searches
+for a specified string - in this case a userid to be cloned.
+After the report runs you need to place the contents of the report
+into a dataset.  Place "XDC" next the report in your SDSF output
+and press enter.  The SDSF dataset allocation panel (below) appears.
+
+Select "NEW" to create the output file for the first time and
+"OLD" if it already exists.
+
+You may also send the output to a file and skip the "XDC" step:
+  //SYSLIST  DD  DSN=userid.JOB.OUTPUT,
+  //             DISP=(NEW,CATLG,DELETE),
+  //             SPACE=(TRK,(1,2)),UNIT=sysda,
+  //             LRECL=133,BLKSIZE=19950,DSORG=PS,RECFM=FB
+
+For "U" process, enter a date/initials combination such as:
+  SELRECIF(1,0,C"03/28/24 FML)"),   (See 1. above)
+
+For all others, search for the 'from' userid:
+  SELRECIF(1,0,C"USR0001"),
+
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+SDSF Open Print Data Set panel
+
+Data set name  ===> 'userid.JOB.OUTPUT'
+Member to use  ===>
+Disposition    ===> NEW        (OLD, NEW, SHR, MOD)
+
+Management class     ===>      (Blank for default management class)
+Storage class        ===>      (Blank for default storage class)
+ Volume serial       ===>      (Blank for authorized default volume)
+ Device type         ===>      (Generic unit or device address)
+Data class           ===>      (Blank for default data class)
+  Space units        ===> TRKS      (BLKS, TRKS, CYLS, BY, KB, or MB)
+  Primary quantity   ===> 10        (In above units)
+  Secondary quantity ===> 20        (In above units)
+  Directory blocks   ===>           (Zero for sequential data set)
+  Record format      ===> FB
+  Record length      ===> 133
+  Block size         ===> 19950
+Data set name type   ===>      (LIBRARY, blank, ... See Help for more)
+Extended attributes  ===>      (NO, OPT, or blank)
+
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+
+ACFRULE process options
+
+These are specified in ACFRULP as:
+
+* - --------------- ---------------
+  F process         C                 C D M U Z
+  F from userid     XXXXXXXX
+  F to userid       XXXXXXXX
+  F initials        XXX
+  F gap             Y
+  F delay           06
+  F trail           N
+* - --------------- ---------------
+
+
+from userid        userid to be cloned
+
+to userid          new clone
+
+initials           two or three characters
+
+gap                Y = include space between date and initials.
+                   Example: "MM/DD/YY XXX" vs "MM/DD/YYXXX"
+
+delay              ## = seconds to delay between job submissions
+                   default is 04, range is 04 through 30
+                   Delay process is implemented using "NEWWAIT"
+                   on CBT tape #270
+
+trail              Y = carry over last eight bytes of cloned record
+
+
+Process            listed below
+
+C = Clone userid records to top of member.
+    ACFRUL2 builds an internal table with up to 200 rule lines.
+    If the member contains more than 200 lines the process is skipped.
+    Also if the member contained less than or exactly 200 lines but
+    the process of cloning records resulted in the table containing
+    more than 200 lines then the process is skipped.  If the
+    cloning is successful and the line contains a "DA(" description
+    then the date and initials within the description are updated
+    with comment "DA(ADDED MM/DD/YY XXX)".  Once the table is loaded
+    with all the rule lines it is searched from the bottom up and clone
+    lines are inserted after the initial "$" rule statement line
+    (and any included comments).
+    Cloned commented lines remain commented.  Use 'M' to uncomment.
+
+
+D = Comment out records with 'from' userid.
+    If the commenting is successful and the line contains a "DA("
+    description then the date and initials within the description are
+    updated with "DA(DEL MM/DD/YY XXX)".
+
+
+M = Uncomment records for 'from' userid.
+    If the uncommenting is successful and the line contains a "DA("
+    description then the date and initials within the description are
+    updated with "DA(ADDED MM/DD/YY XXX)".
+
+
+U = Undo groups of changes for a specified date.
+    "U" is good for removing lines containing comments with a
+    specified date and initials.  For example, even if you cloned
+    a few users in one day you should be able to "undo" those changes
+    using "U".
+
+    The "undo" process assumes some type of mistake was probably made:
+      - previously cloned records with space in position 1 are
+          physically removed.  If there are concerns with losing
+          records then perhaps avoid using "U" and instead specify
+          "D" to comment, rather than zap, these records.
+      - previously commented records with '*' in position 1
+          are uncommented
+
+    "U" alone defaults to current date - to remove commented lines
+        for a date other than current date, specify after "U"
+
+        * - --------------- ---------------
+          F process         U
+          F process         U mm/dd/yy
+
+    "U" will capture the userid associated with "UID" and alter
+    all records containing that userid as long as the group of
+    records are for that userid/date/initial combination.
+    Once a different date or userid is found the "undo" process skips
+    any further groups until another date match is made.
+    Of course records previously purged with "Z" cannot be unpurged.
+
+    Date is optional and defaults to current date.
+
+    In this example, specifying "U" on date 03/38/24 would:
+      1.  match to line 'a'
+      2.  The userid SBY895 is then captured and further lines for
+          this group of lines would be "undone" - in this case lines
+          'a' 'b' and 'c' would be removed from the member.
+      3.  Line 'd' would not match the specifed date so alterations
+          stop.
+      4.  If lines further below match then the date the logic
+          applies to those groups of lines ie: 'g' 'h' 'i'
+          except those lines will be uncommented since they were
+          found commented with '*' in position 1.
+
+    a   UPLOAD.LEX.- UID(LOFXVU5**SBY895) R(A) DA(DEL 03/28/24 FML)
+    b   EASYL-.- UID(LOFXVU5**SBY895) R(A) E(A)
+    c   TEMP-.- UID(LOFXVU5**SBY895) R(A) W(A) A(A) E(A)
+    d   UPLOAD.LEX.- UID(LOFXVU5**SBY005) R(A) DA(DEL 02/14/23 ABC)
+    e   EASYL-.- UID(LOFXVU5**SBY005) R(A) E(A)
+    f   TEMP-.- UID(LOFXVU5**SBY005) R(A) W(A) A(A) E(A)
+    g  *UPLOAD.LEX.- UID(LOFXVU5**SBY234) R(A) DA(DEL 03/28/24 FML)
+    h  *EASYL-.- UID(LOFXVU5**SBY234) R(A) E(A)
+    i  *TEMP-.- UID(LOFXVU5**SBY234) R(A) W(A) A(A) E(A)
+
+
+Z = Physically remove records with 'from' userid.
+    These cannot be undeleted later so you may be better off using "D"
+    to comment the records rather than "Z".
+

@@ -1,0 +1,69 @@
+*
+*   This parm is used to place lrecl and blocksize into the
+*   JCL used by the ACFRULE process, and to pass flags into
+*   both programs.
+*
+*   programs:  ACFRUL1   ACFRUL2
+*
+*--------------------------------------------------------------------
+*
+*   FLAGS
+*
+*   process        C = Clone userid records to top of member
+*                      note: if cloning commented records, use 'M'
+*                      next to then uncomment cloned userid -
+*                      remember to also change 'from' userid below
+*                  D = Comment out records containing 'from' userid.
+*                      note: Does not clone to 'to' userid. To do that,
+*                      perform 'C' and then 'Z' or 'D'.
+*                  M = Uncomment records for 'from' userid
+*                  U = Undo changes to groups of lines related to a
+*                      previous change.
+*                      Enter as "U MM/DD/YY" to specify a date.
+*                      "U" alone defaults to current date.
+*                      note: Unable to fix previous "Z" changes.
+*                  Z = Physically remove records with 'from' userid.
+*                      note: Does not clone to 'to' userid. To do that,
+*                      perform 'C' and then 'Z' or 'D'.
+*   from userid    userid to be cloned (required for C/D/M/Z process)
+*   to userid      new clone (required for C process)
+*   initials       two or three characters
+*   gap            Y = include space between date and initials
+*                      "MM/DD/YY XXX" vs "MM/DD/YYXXX"
+*   delay          ## = seconds to delay between job submissions
+*                       default is 08, range is 04 through 30
+*   trail          Y = carry over last eight bytes of cloned record
+*
+*
+* line designation F=process flags
+* |                D=DSN entry
+* |
+* |
+* - --------------- ---------------
+  F process         C                 C D M U Z
+  F from userid     SBY801
+  F to userid       SBY802
+  F initials        FML
+  F gap             Y
+  F delay           07
+  F trail           Y
+* - --------------- ---------------
+*
+*
+*
+*   library name - enter up to 30 DSN's          lrecl blocksize
+*   |                                            |     |
+* - -------------------------------------------- ----- -----
+  D userid.ACF2.RRULEFAC.CNTL                    00080 03120
+  D userid.ACF2.RRULELFP.CNTL                    00080 03120
+  D userid.ACF2.RRULELFT.CNTL                    00080 03120
+  D userid.ACF2.RRULELKP.CNTL                    00080 03120
+  D userid.ACF2.RRULELPP.CNTL                    00080 03120
+  D userid.ACF2.RRULESTR.CNTL                    00080 03120
+  D userid.ACF2.RRULEVCL.CNTL                    00080 03120
+  D userid.CA7.CNTL                              00080 03120
+  D userid.LOF.RULES.ALL                         00132 13200
+  D userid.ISPF.ACFR080                          00080 03120
+  D userid.ISPF.ACFR132                          00132 13200
+  D userid.ISPF.LIBRARY.WRK1                     00080 27920
+* - -------------------------------------------- ----- -----

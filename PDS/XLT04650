@@ -1,0 +1,1013 @@
+
+       TITLE '  XLT04650: edit lrecl 32700 records '.
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID.    XLT04650.
+      **********************************************************CX003B
+      *@@@ C3 edit lrecl 32700 records
+      ****************************************************************
+      *
+      *  I am interested in knowing if/where these programs
+      *  are in use.     Email:  jiannon@me.com
+      *
+      ****************************************************************
+      * Date written: 07/05/2019
+      * Author      : Jim Iannone
+      *               Loop through lrecl 32700 VB records and replace
+      *               strings with longer or shorter strings
+      *               or zap portions of strings by setting the
+      *               string length to zero.  Also allow zapping
+      *               trailing spaces when last character in record
+      *               is a specified EOR character.
+      *
+      *
+      ****************************************************************
+      *  08/02/2019 Iannone  allow suppressing display of changes
+      *  01/30/2020 Iannone  add relational group logic
+      *  11/17/2022 Iannone  add logic to alter by segment
+      ****************************************************************
+
+       ENVIRONMENT DIVISION.
+
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           C01 IS PAGE-TOP.
+
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+
+           SELECT LONGREC              ASSIGN TO LONGREC
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT LONGOUT              ASSIGN TO LONGOUT
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT PARM01               ASSIGN TO PARM01
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+       DATA DIVISION.
+       FILE SECTION.
+
+       FD  LONGREC
+           RECORDING MODE V
+           RECORD IS VARYING IN SIZE
+           FROM 1  TO 32700 CHARACTERS
+           DEPENDING ON WS-LONGREC-RCD-LEN.
+
+       01  LONGREC-RECORD.
+           05  LONGREC-RCD             PIC X(32700).
+
+       FD  LONGOUT
+           RECORDING MODE V
+           RECORD IS VARYING IN SIZE
+           FROM 1  TO 32700 CHARACTERS
+           DEPENDING ON WS-LONGOUT-RCD-LEN.
+
+       01  LONGOUT-RECORD.
+           05  LONGOUT-RCD             PIC X(32700).
+
+       FD  PARM01
+           RECORDING MODE F.
+       01  PARM01-RECORD.
+           05  PARM01-RCD              PIC  X(80).
+           05  PARM01-RCD1             REDEFINES PARM01-RCD.
+               10  PARM01-DOCU         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-CODE         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-STR-O.
+                   15  PARM01-EOR      PIC  X.
+                   15  PARM01-STR-2X30 PIC  X(29).
+               10  FILLER              PIC  X.
+               10  PARM01-LEN-O        PIC  XX.
+               10  FILLER              PIC  X.
+               10  PARM01-STR-N        PIC  X(30).
+               10  FILLER              PIC  X.
+               10  PARM01-LEN-N        PIC  XX.
+               10  PARM01-GROUP        PIC  X.
+               10  FILLER              PIC  X(08).
+           05  PARM01-RCD2             REDEFINES PARM01-RCD.
+               10  FILLER              PIC  X(04).
+               10  PARM01-R-GROUP      PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-R-WRAP       PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-R-SENDER     PIC  X(15).
+               10  FILLER              PIC  X.
+               10  PARM01-R-LEN        PIC  XX.
+               10  FILLER              PIC  X.
+               10  PARM01-R-SEG        PIC  XXX.
+               10  FILLER              PIC  X.
+               10  PARM01-R-LOC        PIC  XX.
+               10  FILLER              PIC  X.
+               10  PARM01-R-QUAL       PIC  XX.
+               10  FILLER              PIC  X(36).
+               10  FILLER              PIC  X(08).
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-START.
+           05  FILLER                  PIC  X(32)    VALUE
+               ' Working storage XLT04650 start '.
+
+       01  WS-WORK-FIELDS.
+           05  WS-STAT                 PIC  99       VALUE ZERO.
+           05  WS-PARM01-MAX           PIC  9(05)    VALUE ZERO.
+           05  WS-GRP-MAX              PIC  9(05)    VALUE ZERO.
+           05  WS-EOR-MAX              PIC  9(05)    VALUE ZERO.
+           05  WS-RETURN-CODE          PIC S9(04)    VALUE ZERO COMP.
+           05  WS-TALLY                PIC S9(05)    VALUE ZERO COMP.
+           05  WS-LS-DATA              PIC  X(10)    VALUE SPACE.
+           05  FILLER REDEFINES WS-LS-DATA.
+               10  WS-LS-ZAP-TRAIL     PIC  X.
+               10  WS-LS-TEST-SW       PIC  X.
+               10  WS-LS-EXTRA         PIC  X(08).
+           05  WS-1-CYMD               PIC  X(08)    VALUE SPACE.
+           05  WS-LONGREC-RCD-LEN      PIC  9(05)    VALUE ZERO.
+           05  WS-LONGOUT-RCD-LEN      PIC  9(05)    VALUE ZERO.
+           05  WS-MAX-POS              PIC  9(05)    VALUE ZERO.
+           05  WS-R1-LEN               PIC  9(05)    VALUE ZERO.
+           05  WS-R2-LEN               PIC  9(05)    VALUE ZERO.
+           05  WS-R4-LEN               PIC  9(05)    VALUE ZERO.
+           05  WS-SEG-POS              PIC  9(05)    VALUE ZERO.
+           05  WS-LEN-O                PIC  99       VALUE ZERO.
+           05  WS-LEN-N                PIC  99       VALUE ZERO.
+           05  WS-SEND-LEN             PIC  99       VALUE ZERO.
+           05  WS-SEG-LOC              PIC  99       VALUE ZERO.
+           05  WS-SEP-CNT              PIC  9(05)    VALUE ZERO.
+           05  WS-GRP-ERR              PIC  X(200)   VALUE SPACE.
+           05  WS-INTRDR-END           PIC  X(05)    VALUE '/*EOF'.
+           05  WS-ZAP-OCCUR-SW         PIC  X        VALUE SPACE.
+           05  WS-EOR-SW               PIC  X        VALUE SPACE.
+           05  WS-FND-EOR              PIC  X        VALUE SPACE.
+           05  WS-CHANGE-SW            PIC  X        VALUE SPACE.
+           05  WS-LINE-CHANGE-SW       PIC  X        VALUE SPACE.
+           05  WS-PARM-EDIT-SW         PIC  X        VALUE SPACE.
+           05  WS-SEG-AND-LOC-SW       PIC  X        VALUE SPACE.
+           05  WS-SEG-AND-QUAL-SW      PIC  X        VALUE SPACE.
+           05  WS-WRAP-SW              PIC  X        VALUE SPACE.
+           05  WS-WRAP-SEP-SW          PIC  X        VALUE SPACE.
+           05  WS-ISA-SENDER-SW        PIC  X        VALUE SPACE.
+           05  WS-CODE                 PIC  X        VALUE SPACE.
+           05  WS-SEP                  PIC  X        VALUE SPACE.
+           05  WS-GROUP                PIC  X        VALUE SPACE.
+           05  WS-GRP-MATCH-SW         PIC  X        VALUE SPACE.
+           05  WS-BEFORE-SW            PIC  X        VALUE SPACE.
+           05  WS-AFTER-SW             PIC  X        VALUE SPACE.
+           05  WS-SHOW-BEFORE          PIC  X(32)    VALUE SPACE.
+           05  WS-SHOW-AFTER           PIC  X(32)    VALUE SPACE.
+           05  WS-SENDER               PIC  X(20)    VALUE SPACE.
+           05  WS-SEG                  PIC  XXX      VALUE SPACE.
+           05  WS-QUAL                 PIC  XXX      VALUE SPACE.
+           05  WS-SHOW-SEP             PIC  X(15)    VALUE SPACE.
+           05  WS-RCD-SW               PIC  X        VALUE SPACE.
+           05  WS-XA1                  PIC  X        VALUE X'A1'.
+           05  WS-XB0                  PIC  X        VALUE X'B0'.
+           05  WS-X0D                  PIC  X        VALUE X'0D'.
+           05  WS-X1C                  PIC  X        VALUE X'1C'.
+           05  WS-X15                  PIC  X        VALUE X'15'.
+           05  WS-X22                  PIC  X        VALUE X'22'.
+           05  WS-X7C                  PIC  X        VALUE X'7C'.
+           05  WS-X7D                  PIC  X        VALUE X'7D'.
+           05  WS-STR-O                PIC  X(30)    VALUE SPACE.
+           05  WS-STR-N                PIC  X(30)    VALUE SPACE.
+           05  WS-R1-SEG               PIC  XXX      VALUE SPACE.
+           05  WS-R1-QUAL              PIC  XXX      VALUE SPACE.
+           05  WS-UNSTR-FIELDS.
+               10  WS-UNSTR1           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR2           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR3           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR4           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR5           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR6           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR7           PIC  X(20)    VALUE SPACE.
+               10  WS-UNSTR8           PIC  X(20)    VALUE SPACE.
+           05  WS-HOLD-R1              PIC  X(32700) VALUE SPACE.
+           05  WS-HOLD-R2              PIC  X(32700) VALUE SPACE.
+
+       01  WS-COUNT-FIELDS             COMP-3.
+           05  WS-READ-LONGREC-CNT     PIC S9(07)    VALUE ZERO.
+           05  WS-WRITE-LONGOUT-CNT    PIC S9(07)    VALUE ZERO.
+           05  WS-LINE-CHANGE-CNT      PIC S9(07)    VALUE ZERO.
+
+       01  WS-SUBSCRIPTS               COMP.
+           05  WS-SUB1                 PIC S9(05)    VALUE ZERO.
+           05  WS-SUB2                 PIC S9(05)    VALUE ZERO.
+           05  WS-SUB3                 PIC S9(05)    VALUE ZERO.
+           05  WS-SUB4                 PIC S9(05)    VALUE ZERO.
+           05  WS-SUB5                 PIC S9(05)    VALUE ZERO.
+           05  WS-SUB6                 PIC S9(05)    VALUE ZERO.
+           05  WS-STR1                 PIC S9(05)    VALUE ZERO.
+           05  WS-STR2                 PIC S9(05)    VALUE ZERO.
+
+       01  WS-TABLES.
+           05  WS-PARM01-TABLE         PIC  X(13200) VALUE SPACE.
+           05  WS-PARM01-ITEM REDEFINES WS-PARM01-TABLE
+                                       OCCURS 200 TIMES.
+               10  WS-P1-STR-O         PIC  X(30).
+               10  WS-P1-LEN-O         PIC  99.
+               10  WS-P1-STR-N         PIC  X(30).
+               10  WS-P1-LEN-N         PIC  99.
+               10  WS-P1-CODE          PIC  X.
+               10  WS-P1-GRP           PIC  X.
+           05  WS-GROUP-TABLE          PIC  X(1300)  VALUE SPACE.
+           05  WS-GROUP-ITEM REDEFINES WS-GROUP-TABLE
+                                       OCCURS 50 TIMES.
+               10  WS-G1-GRP           PIC  X.
+               10  WS-G1-WRAP          PIC  X.
+               10  WS-G1-SND           PIC  X(15).
+               10  WS-G1-LEN           PIC  XX.
+               10  WS-G1-SEG           PIC  XXX.
+               10  WS-G1-QUAL          PIC  XX.
+               10  WS-G1-LOC           PIC  XX.
+           05  WS-EOR-TABLE            PIC  X(20)    VALUE SPACE.
+           05  WS-EOR-ITEM REDEFINES WS-EOR-TABLE
+                                       OCCURS 20 TIMES.
+               10  WS-EOR              PIC  X.
+
+       01  WS-SWITCHES.
+           05  WS-END-LONGREC-SW       PIC  X        VALUE 'N'.
+               88  END-OF-LONGREC                    VALUE 'Y'.
+               88  MORE-LONGREC-RCDS                 VALUE 'N'.
+
+       01  WS-END.
+           05  FILLER                  PIC  X(16)    VALUE
+               '  XLT04650 END  '.
+
+       LINKAGE SECTION.
+
+       01  LS-FIELD.
+           05  LS-LENGTH               PIC S9(04)    COMP.
+           05  LS-DATA                 PIC  X(10).
+           05  FILLER REDEFINES LS-DATA.
+               10  LS-ZAP-TRAIL        PIC  X.
+               10  LS-TEST-SW          PIC  X.
+               10  LS-EXTRA            PIC  X(08).
+
+      /
+
+       PROCEDURE DIVISION USING LS-FIELD.
+
+       0100-PROGRAM-ENTRY.
+           MOVE +0000                         TO WS-RETURN-CODE.
+           PERFORM 0200-OPEN-FILES.
+           DISPLAY '    '.
+           DISPLAY '**** XLT04650 alter lrecl 32700 records'.
+
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 0400-PROCESS-LONGREC.
+
+           IF WS-EOR-MAX > ZERO
+             IF WS-ZAP-OCCUR-SW = 'Y'
+                 DISPLAY '**** EOR delimiters       ' WS-EOR-MAX
+                         ' of 20'
+             ELSE
+                 CONTINUE
+           ELSE
+           IF WS-LS-ZAP-TRAIL = 'Y'
+               DISPLAY '**** No EOR delimiters specified - '
+                       'zap processing skipped'.
+
+           DISPLAY '**** Records in LONGREC   ' WS-READ-LONGREC-CNT.
+           DISPLAY '**** Records in LONGOUT   ' WS-WRITE-LONGOUT-CNT.
+
+           IF WS-PARM01-MAX = ZERO
+             IF WS-ZAP-OCCUR-SW = 'Y'
+                 DISPLAY '**** Copying records as-is with trailing'
+                         ' spaces removed'
+             ELSE
+                 DISPLAY '**** Copying records as-is'
+           ELSE
+           IF WS-ZAP-OCCUR-SW = 'Y'
+               DISPLAY '**** LONGOUT rcds changed ' WS-LINE-CHANGE-CNT
+                       ' with trailing spaces removed'
+           ELSE
+               DISPLAY '**** LONGOUT rcds changed ' WS-LINE-CHANGE-CNT.
+
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 0300-CLOSE-FILES
+           ELSE
+               DISPLAY '**** XLT04650 cond code ' WS-RETURN-CODE
+                       ' set by program'
+               MOVE WS-RETURN-CODE            TO RETURN-CODE.
+
+           DISPLAY '**** XLT04650 EOJ encountered '.
+           DISPLAY '    '.
+           STOP RUN.
+
+       0200-OPEN-FILES.
+           OPEN INPUT  LONGREC.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** XLT04650 open error on LONGREC'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN OUTPUT LONGOUT.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** XLT04650 open error on LONGOUT'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN INPUT  PARM01.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** XLT04650 open error on PARM01'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+
+       0300-CLOSE-FILES.
+           CLOSE LONGOUT.
+           CLOSE LONGREC.
+           CLOSE PARM01.
+
+      *---------------------------------------
+      *    X
+      *---------------------------------------
+       0400-PROCESS-LONGREC.
+
+           PERFORM 0500-GET-LINKAGE.
+
+           PERFORM VARYING WS-SUB1 FROM 1 BY 1
+               UNTIL WS-SUB1 > 200
+               MOVE SPACE                     TO WS-P1-STR-O(WS-SUB1)
+               MOVE SPACE                     TO WS-P1-STR-N(WS-SUB1)
+               MOVE SPACE                     TO WS-P1-CODE(WS-SUB1)
+               MOVE SPACE                     TO WS-P1-GRP(WS-SUB1)
+               MOVE ZERO                      TO WS-P1-LEN-O(WS-SUB1)
+               MOVE ZERO                      TO WS-P1-LEN-N(WS-SUB1)
+           END-PERFORM.
+           PERFORM VARYING WS-SUB4 FROM 1 BY 1
+               UNTIL WS-SUB4 > 50
+               MOVE SPACE                     TO WS-G1-GRP(WS-SUB4)
+               MOVE SPACE                     TO WS-G1-WRAP(WS-SUB4)
+               MOVE SPACE                     TO WS-G1-SND(WS-SUB4)
+               MOVE SPACE                     TO WS-G1-SEG(WS-SUB4)
+               MOVE SPACE                     TO WS-G1-QUAL(WS-SUB4)
+               MOVE ZERO                      TO WS-G1-LEN(WS-SUB4)
+               MOVE ZERO                      TO WS-G1-LOC(WS-SUB4)
+           END-PERFORM.
+           IF WS-RETURN-CODE = ZERO
+               MOVE SPACE                     TO WS-EOR-TABLE
+               MOVE ZERO                      TO WS-SUB1 WS-SUB2
+               MOVE ZERO                      TO WS-SUB4
+               PERFORM 0700-LOAD-PARM01 THRU
+                       0700-LOAD-PARM01-EXIT.
+
+           IF WS-PARM01-MAX > ZERO
+               DISPLAY '**** Change requests      ' WS-PARM01-MAX
+                       ' of 200'.
+
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 1100-GET-LONGREC
+                   UNTIL END-OF-LONGREC.
+
+       0500-GET-LINKAGE.
+           IF LS-LENGTH = ZERO
+               DISPLAY '**** Parm length is zero '
+               MOVE +0500                     TO WS-RETURN-CODE
+           ELSE
+           IF LS-LENGTH > LENGTH OF WS-LS-DATA
+               DISPLAY '**** Parm length is excessive '
+               MOVE +0500                     TO WS-RETURN-CODE
+           ELSE
+               MOVE LS-DATA(1: LS-LENGTH)     TO WS-LS-DATA.
+
+      *---------------------------------------
+      *    load XXX...
+      *---------------------------------------
+       0700-LOAD-PARM01.
+           READ PARM01.
+           IF WS-STAT = 10
+               MOVE WS-SUB1                   TO WS-PARM01-MAX
+               MOVE WS-SUB2                   TO WS-EOR-MAX
+               MOVE WS-SUB4                   TO WS-GRP-MAX
+               GO TO 0700-LOAD-PARM01-EXIT
+           ELSE
+           IF WS-STAT > ZERO
+               DISPLAY '**** XLT04650 read error on PARM01'
+               DISPLAY '**** File stat = ' WS-STAT
+               MOVE +0700                     TO WS-RETURN-CODE
+               GO TO 0700-LOAD-PARM01-EXIT.
+
+           IF PARM01-DOCU = '*'
+               GO TO 0700-LOAD-PARM01.
+
+           IF PARM01-CODE = 'C' OR 'N'
+               MOVE SPACE                     TO WS-PARM-EDIT-SW
+               PERFORM 0700-PARM-CN-EDIT
+               IF WS-PARM-EDIT-SW = SPACE
+                 IF WS-SUB1 < 200
+                     ADD 1                    TO WS-SUB1
+                     PERFORM 0700-PARM-CN-FIELDS.
+
+           IF PARM01-CODE = 'R'
+               MOVE SPACE                     TO WS-PARM-EDIT-SW
+               PERFORM 0700-PARM-R-EDIT
+               IF WS-PARM-EDIT-SW = SPACE
+                 IF WS-SUB4 < 50
+                     ADD 1                    TO WS-SUB4
+                     PERFORM 0700-PARM-R-FIELDS.
+
+           IF PARM01-CODE = 'E'
+             IF WS-SUB2 < 20
+                 ADD 1                        TO WS-SUB2
+                 MOVE PARM01-EOR              TO WS-EOR(WS-SUB2).
+
+           GO TO 0700-LOAD-PARM01.
+
+       0700-LOAD-PARM01-EXIT. EXIT.
+
+       0700-PARM-CN-EDIT.
+           IF PARM01-STR-O = SPACE
+               DISPLAY '**** old parm string is blank - skipping'
+               MOVE 'Y'                       TO WS-PARM-EDIT-SW.
+           IF PARM01-LEN-O NUMERIC
+               MOVE PARM01-LEN-O              TO WS-LEN-O
+               IF WS-LEN-O = ZERO
+                   DISPLAY '**** old parm length is zero - skipping'
+                   MOVE 'Y'                   TO WS-PARM-EDIT-SW
+               ELSE
+               IF WS-LEN-O > 30
+                   DISPLAY '**** old parm length > 30 - skipping'
+                   MOVE 'Y'                   TO WS-PARM-EDIT-SW
+               ELSE
+                   CONTINUE
+           ELSE
+               DISPLAY '**** old parm length is not numeric '
+                       '- skipping'
+               MOVE 'Y'                       TO WS-PARM-EDIT-SW.
+           IF PARM01-LEN-N NUMERIC
+               MOVE PARM01-LEN-N              TO WS-LEN-N
+               IF WS-LEN-N > 30
+                   DISPLAY '**** new parm length > 30 - skipping'
+                   MOVE 'Y'                   TO WS-PARM-EDIT-SW
+               ELSE
+                   CONTINUE
+           ELSE
+               DISPLAY '**** new parm length is not numeric '
+                       '- skipping'
+               MOVE 'Y'                       TO WS-PARM-EDIT-SW.
+
+       0700-PARM-CN-FIELDS.
+           MOVE PARM01-STR-O                  TO WS-P1-STR-O(WS-SUB1).
+           MOVE PARM01-LEN-O                  TO WS-P1-LEN-O(WS-SUB1).
+           MOVE PARM01-STR-N                  TO WS-P1-STR-N(WS-SUB1).
+           MOVE PARM01-LEN-N                  TO WS-P1-LEN-N(WS-SUB1).
+           MOVE PARM01-CODE                   TO WS-P1-CODE(WS-SUB1).
+           MOVE PARM01-GROUP                  TO WS-P1-GRP(WS-SUB1).
+
+       0700-PARM-R-EDIT.
+           IF PARM01-R-LEN = SPACE
+               CONTINUE
+           ELSE
+           IF PARM01-R-LEN NUMERIC
+               MOVE PARM01-R-LEN              TO WS-LEN-O
+               IF WS-LEN-O > 15
+                   DISPLAY '**** sender len > 15 - skipping'
+                   MOVE 'Y'                   TO WS-PARM-EDIT-SW
+               ELSE
+                   CONTINUE
+           ELSE
+               DISPLAY '**** sender length invalid - skipping'
+               MOVE 'Y'                       TO WS-PARM-EDIT-SW.
+           IF PARM01-R-LOC = SPACE
+               CONTINUE
+           ELSE
+           IF PARM01-R-LOC NUMERIC
+               MOVE PARM01-R-LOC              TO WS-LEN-O
+               IF WS-LEN-O > 30
+                   DISPLAY '**** segment location > 30 - skipping'
+                   MOVE 'Y'                   TO WS-PARM-EDIT-SW
+               ELSE
+                   CONTINUE
+           ELSE
+               DISPLAY '**** segment location invalid - skipping'
+               MOVE 'Y'                       TO WS-PARM-EDIT-SW.
+
+       0700-PARM-R-FIELDS.
+           MOVE PARM01-R-GROUP                TO WS-G1-GRP(WS-SUB4).
+           MOVE PARM01-R-WRAP                 TO WS-G1-WRAP(WS-SUB4).
+           MOVE PARM01-R-SENDER               TO WS-G1-SND(WS-SUB4).
+           IF PARM01-R-LEN NUMERIC
+               MOVE PARM01-R-LEN              TO WS-G1-LEN(WS-SUB4).
+           MOVE PARM01-R-SEG                  TO WS-G1-SEG(WS-SUB4).
+           MOVE PARM01-R-QUAL                 TO WS-G1-QUAL(WS-SUB4).
+           IF PARM01-R-LOC NUMERIC
+               MOVE PARM01-R-LOC              TO WS-G1-LOC(WS-SUB4).
+
+      *---------------------------------------
+
+       1100-GET-LONGREC.
+           PERFORM 1100-READ-LONGREC.
+           IF MORE-LONGREC-RCDS
+               ADD 1                          TO WS-READ-LONGREC-CNT
+               PERFORM 1200-SELECT THRU
+                       1200-SELECT-EXIT.
+
+       1100-READ-LONGREC.
+           READ LONGREC
+             AT END
+                 MOVE 'Y'                     TO WS-END-LONGREC-SW.
+
+      *---------------------------------------
+      *    WS-SUB1   parm loop subscript
+      *    WS-SUB2   vb record original subscript
+      *    WS-SUB3   vb record altered subscript
+      *    WS-SUB4   crunch subscript
+      *    WS-SUB5   EOR character test subscript
+      *    WS-SUB6   EOR search subscript
+      *---------------------------------------
+       1200-SELECT.
+           IF WS-PARM01-MAX = ZERO
+               MOVE LONGREC-RCD               TO WS-HOLD-R2
+               MOVE WS-LONGREC-RCD-LEN        TO WS-R2-LEN
+           ELSE
+               MOVE LONGREC-RCD               TO WS-HOLD-R1
+               MOVE WS-LONGREC-RCD-LEN        TO WS-R1-LEN
+               MOVE SPACE                     TO WS-HOLD-R2
+               MOVE SPACE                     TO WS-LINE-CHANGE-SW
+               MOVE 1                         TO WS-SUB3
+               PERFORM 1300-DETERMINE-X12-SEGMENT
+               PERFORM 1300-STRING-LOOP
+                   VARYING WS-SUB2 FROM 1 BY 1
+                   UNTIL WS-SUB2 > WS-R1-LEN
+               MOVE WS-SUB3                   TO WS-R2-LEN
+               SUBTRACT 1                     FROM WS-R2-LEN.
+           IF WS-LINE-CHANGE-SW = 'Y'
+               ADD 1                          TO WS-LINE-CHANGE-CNT.
+           IF WS-LS-ZAP-TRAIL = 'Y'
+               PERFORM 1500-CRUNCH-TRAIL-SPACES.
+           MOVE WS-HOLD-R2                    TO LONGOUT-RCD.
+           MOVE WS-R2-LEN                     TO WS-LONGOUT-RCD-LEN.
+           PERFORM 2300-WRITE-LONGOUT.
+
+       1200-SELECT-EXIT. EXIT.
+
+       1300-DETERMINE-X12-SEGMENT.
+           IF WS-FND-EOR = 'X'
+               PERFORM 1300-SEARCH-EOR-GS
+                   VARYING WS-SUB6 FROM WS-R1-LEN BY -1
+                   UNTIL WS-SUB6 < 10.
+           IF WS-FND-EOR = 'X'
+               PERFORM 1300-SEARCH-EOR-BACKWRD
+                   VARYING WS-SUB6 FROM WS-R1-LEN BY -1
+                   UNTIL WS-SUB6 < 10.
+
+      *---------------------------------------
+      *    crude method for determining wrapped or unstrung records
+      *---------------------------------------
+           IF WS-RCD-SW = SPACE
+             IF WS-HOLD-R1(1: 2) = 'GS'
+                 AND WS-HOLD-R1(3: 1) = WS-SEP
+                 AND WS-HOLD-R1(70: 10) = SPACE
+                 MOVE 'U'                     TO WS-RCD-SW
+             ELSE
+             IF WS-HOLD-R1(1: 3) = 'UNH'
+                 AND WS-HOLD-R1(4: 1) = WS-SEP
+                 AND WS-HOLD-R1(70: 10) = SPACE
+                 MOVE 'U'                     TO WS-RCD-SW.
+           IF WS-RCD-SW = 'U'
+               MOVE WS-HOLD-R1(1: 3)          TO WS-R1-SEG
+               MOVE 1                         TO WS-SEG-POS
+               IF WS-R1-SEG(3: 1) = WS-SEP
+                   MOVE WS-HOLD-R1(4: 3)      TO WS-R1-QUAL
+               ELSE
+                   MOVE WS-HOLD-R1(5: 3)      TO WS-R1-QUAL.
+
+           IF WS-HOLD-R1(1: 3) = 'ISA' OR 'UNB'
+               MOVE 'X'                       TO WS-FND-EOR
+               MOVE SPACE                     TO WS-RCD-SW
+               MOVE WS-HOLD-R1(1: 3)          TO WS-R1-SEG
+               MOVE 1                         TO WS-SEG-POS
+               MOVE SPACE                     TO WS-R1-QUAL
+               MOVE WS-HOLD-R1(4: 1)          TO WS-SEP
+               PERFORM 1300-DETERMINE-RCD-TYPE.
+
+           IF WS-LS-TEST-SW = 'Y'
+               DISPLAY 'seg ' WS-R1-SEG ' rcd len ' WS-R1-LEN
+               IF WS-FND-EOR = WS-XA1
+                   DISPLAY '  fnd eor  A1'
+               ELSE IF WS-FND-EOR = WS-XB0
+                   DISPLAY '  fnd eor  B0'
+               ELSE IF WS-FND-EOR = WS-X0D
+                   DISPLAY '  fnd eor  0D'
+               ELSE IF WS-FND-EOR = WS-X1C
+                   DISPLAY '  fnd eor  1C'
+               ELSE IF WS-FND-EOR = WS-X22
+                   DISPLAY '  fnd eor  22'
+               ELSE IF WS-FND-EOR = WS-X7C
+                   DISPLAY '  fnd eor  7C'
+               ELSE IF WS-FND-EOR = WS-X7D
+                   DISPLAY '  fnd eor  7D'
+               ELSE IF WS-FND-EOR = WS-X15
+                   DISPLAY '  fnd eor  15'
+               ELSE IF WS-FND-EOR = SPACE
+                   DISPLAY '  fnd eor  space'
+               ELSE
+                   DISPLAY '  fnd eor  ' WS-FND-EOR.
+
+      *---------------------------------------
+      *    only for ISA or UNB
+      *---------------------------------------
+      *    these unstring fields only hold ISA or UNB data.
+      *    if reusing for other segments then save off UNSTR7 first
+      *    since it is referenced while other segments are read.
+      *---------------------------------------
+       1300-DETERMINE-RCD-TYPE.
+           MOVE SPACE                         TO WS-SEG-AND-LOC-SW.
+           MOVE SPACE                         TO WS-SEG-AND-QUAL-SW.
+           MOVE SPACE                         TO WS-UNSTR-FIELDS.
+           UNSTRING WS-HOLD-R1                DELIMITED BY WS-SEP
+               INTO WS-UNSTR1      WS-UNSTR2  WS-UNSTR3  WS-UNSTR4
+                    WS-UNSTR5      WS-UNSTR6  WS-UNSTR7  WS-UNSTR8.
+           IF WS-R1-SEG = 'UNB'
+               MOVE WS-UNSTR5                 TO WS-UNSTR7.
+
+           IF WS-R1-SEG = 'ISA'
+             IF WS-R1-LEN = 80
+                 CONTINUE
+             ELSE
+                 PERFORM 1300-SEARCH-EOR-GS
+                     VARYING WS-SUB6 FROM WS-R1-LEN BY -1
+                     UNTIL WS-SUB6 < 10.
+           IF WS-R1-SEG = 'UNB'
+             IF WS-R1-LEN = 80
+               IF WS-HOLD-R1(70: 10) = SPACE
+                   PERFORM 1300-SEARCH-EOR-BACKWRD
+                       VARYING WS-SUB6 FROM WS-R1-LEN BY -1
+                       UNTIL WS-SUB6 < 10
+               ELSE
+                   PERFORM 1300-SEARCH-EOR-UNH
+                       VARYING WS-SUB6 FROM WS-R1-LEN BY -1
+                       UNTIL WS-SUB6 < 10
+             ELSE
+                 PERFORM 1300-SEARCH-EOR-UNH
+                     VARYING WS-SUB6 FROM WS-R1-LEN BY -1
+                     UNTIL WS-SUB6 < 10.
+
+       1300-SEARCH-EOR-GS.
+           IF WS-HOLD-R1(WS-SUB6: 2) = 'GS'
+               AND WS-HOLD-R1(WS-SUB6 + 2: 1) = WS-SEP
+               PERFORM 1300-TEST-PREV-EOR
+                   VARYING WS-SUB5 FROM 1 BY 1
+                   UNTIL WS-SUB5 > WS-EOR-MAX.
+
+       1300-SEARCH-EOR-UNH.
+           IF WS-HOLD-R1(WS-SUB6: 3) = 'UNH'
+               AND WS-HOLD-R1(WS-SUB6 + 3: 1) = WS-SEP
+               PERFORM 1300-TEST-PREV-EOR
+                   VARYING WS-SUB5 FROM 1 BY 1
+                   UNTIL WS-SUB5 > WS-EOR-MAX.
+
+       1300-SEARCH-EOR-BACKWRD.
+           IF WS-HOLD-R1(WS-SUB6: 1) = SPACE OR LOW-VALUE
+               CONTINUE
+           ELSE
+               PERFORM 1300-TEST-CURR-EOR
+                   VARYING WS-SUB5 FROM 1 BY 1
+                   UNTIL WS-SUB5 > WS-EOR-MAX.
+
+       1300-TEST-PREV-EOR.
+           IF WS-HOLD-R1(WS-SUB6 - 1: 1) = WS-EOR(WS-SUB5)
+               MOVE WS-HOLD-R1(WS-SUB6 - 1: 1)   TO WS-FND-EOR
+               MOVE WS-EOR-MAX                TO WS-SUB5
+               MOVE 5                         TO WS-SUB6.
+
+       1300-TEST-CURR-EOR.
+           IF WS-HOLD-R1(WS-SUB6: 1) = WS-EOR(WS-SUB5)
+               MOVE WS-HOLD-R1(WS-SUB6: 1)    TO WS-FND-EOR
+               MOVE WS-EOR-MAX                TO WS-SUB5
+               MOVE 5                         TO WS-SUB6.
+
+      *---------------------------------------
+      *    MAIN LOOP THROUGH FILE
+      *---------------------------------------
+      *    if the search string is longer than the physical record,
+      *    skip searching.  also stop searching when looking past EOR.
+      *---------------------------------------
+       1300-STRING-LOOP.
+           MOVE SPACE                         TO WS-CHANGE-SW.
+           PERFORM 1300-COUNT-SEPARATORS.
+           PERFORM 1300-PARM-LOOP
+               VARYING WS-SUB1 FROM 1 BY 1
+               UNTIL WS-SUB1 > WS-PARM01-MAX.
+           IF WS-CHANGE-SW = SPACE
+               PERFORM 1400-COPY-UNCHANGED.
+
+       1300-COUNT-SEPARATORS.
+           IF WS-HOLD-R1(WS-SUB2: 1) = WS-SEP
+               ADD 1                          TO WS-SEP-CNT.
+           IF WS-HOLD-R1(WS-SUB2: 1) = WS-FND-EOR
+               MOVE ZERO                      TO WS-SEP-CNT
+               MOVE SPACE                     TO WS-SEG-AND-LOC-SW
+               MOVE SPACE                     TO WS-SEG-AND-QUAL-SW
+               IF WS-SUB2 < WS-R1-LEN - 2
+                   MOVE WS-HOLD-R1(WS-SUB2 + 1: 3) TO WS-R1-SEG
+                   MOVE WS-SUB2               TO WS-SEG-POS
+                   ADD 1                      TO WS-SEG-POS.
+
+      *---------------------------------------
+      *   123456789012345678    only capture first segment qualifer
+      *      ~N1*SU*            7 < 5 + 5
+      *      ~LIN**BP*          9 < 5 + 5
+      *    if separator is *  set WS-R1-QUAL to 'SU*'
+      *---------------------------------------
+           IF WS-HOLD-R1(WS-SUB2: 1) = WS-SEP
+             IF WS-SUB2 < WS-R1-LEN - 2
+               IF WS-HOLD-R1(WS-SUB2 + 3: 1) = WS-SEP
+                 IF WS-SUB2 < WS-SEG-POS + 5
+                     MOVE WS-HOLD-R1(WS-SUB2 + 1: 3) TO WS-R1-QUAL.
+
+      *---------------------------------------
+      *    STR-O  string old
+      *    STR-N  string new
+      *    LEN-O  string length old
+      *    LEN-N  string length new
+      *---------------------------------------
+       1300-PARM-LOOP.
+           MOVE WS-P1-STR-O(WS-SUB1)          TO WS-STR-O.
+           MOVE WS-P1-STR-N(WS-SUB1)          TO WS-STR-N.
+           MOVE WS-P1-LEN-O(WS-SUB1)          TO WS-LEN-O.
+           MOVE WS-P1-LEN-N(WS-SUB1)          TO WS-LEN-N.
+           MOVE WS-P1-CODE(WS-SUB1)           TO WS-CODE.
+           MOVE WS-P1-GRP(WS-SUB1)            TO WS-GROUP.
+
+           MOVE SPACE                         TO WS-GRP-MATCH-SW.
+           MOVE SPACE                         TO WS-WRAP-SEP-SW.
+           MOVE SPACE                         TO WS-ISA-SENDER-SW.
+           IF WS-RCD-SW = 'U'
+               MOVE SPACE                     TO WS-SEG-AND-LOC-SW
+               MOVE SPACE                     TO WS-SEG-AND-QUAL-SW.
+           MOVE SPACE                         TO WS-WRAP-SW.
+           MOVE SPACE                         TO WS-SENDER.
+           MOVE SPACE                         TO WS-SEG.
+           MOVE SPACE                         TO WS-QUAL.
+           MOVE ZERO                          TO WS-MAX-POS.
+           IF WS-R1-LEN > WS-LEN-O
+               COMPUTE WS-MAX-POS = WS-R1-LEN - WS-LEN-O + 1.
+           MOVE ZERO                          TO WS-SEND-LEN.
+           MOVE ZERO                          TO WS-SEG-LOC.
+           IF WS-GROUP NOT = SPACE
+               MOVE 'X'                       TO WS-GRP-MATCH-SW
+               PERFORM 1300-MATCH-GROUP.
+           PERFORM 1300-MATCH-LOOP.
+
+      *---------------------------------------
+      *    WS-GRP-MATCH-SW is set to 'X' and replaced here. If no group
+      *    match is made then it remains 'X' meaning skip string
+      *    replacement.
+      *---------------------------------------
+       1300-MATCH-GROUP.
+           PERFORM VARYING WS-SUB4 FROM 1 BY 1
+               UNTIL WS-SUB4 > WS-GRP-MAX
+               IF WS-GROUP = WS-G1-GRP(WS-SUB4)
+                   MOVE 'Y'                   TO WS-GRP-MATCH-SW
+                   MOVE WS-G1-WRAP(WS-SUB4)   TO WS-WRAP-SW
+                   MOVE WS-G1-SND(WS-SUB4)    TO WS-SENDER
+                   MOVE WS-G1-LEN(WS-SUB4)    TO WS-SEND-LEN
+                   MOVE WS-G1-SEG(WS-SUB4)    TO WS-SEG
+                   MOVE WS-G1-QUAL(WS-SUB4)   TO WS-QUAL
+                   MOVE WS-G1-LOC(WS-SUB4)    TO WS-SEG-LOC
+                   MOVE WS-GRP-MAX            TO WS-SUB4
+                   PERFORM 1300-ALTER-SHORT-SEG
+               END-IF
+           END-PERFORM.
+           IF WS-GRP-MATCH-SW = 'X'
+             IF WS-GRP-ERR(WS-SUB1: 1) = SPACE
+               IF WS-SUB1 < 201
+                   DISPLAY '---> No match to relation group code - '
+                           'group in C/N record ' WS-SUB1 ' is '
+                           WS-GROUP
+                   MOVE 'X'          TO WS-GRP-ERR(WS-SUB1: 1).
+
+       1300-ALTER-SHORT-SEG.
+           IF WS-SEG NOT = SPACE
+             IF WS-SEG(3: 1) = SPACE
+                 MOVE WS-SEP                  TO WS-SEG(3: 1).
+           IF WS-QUAL NOT = SPACE
+             IF WS-QUAL(3: 1) = SPACE
+                 MOVE WS-SEP                  TO WS-QUAL(3: 1).
+
+      *---------------------------------------
+      *    move characters one at a time from R1 to R2.
+      *    when change string found, move the new change string and
+      *      adjust pull/put positions to skip over the old string.
+      *    switches are initially set to spaces.
+      *---------------------------------------
+       1300-MATCH-LOOP.
+           IF WS-SUB2 > WS-MAX-POS
+               CONTINUE
+           ELSE
+           IF WS-HOLD-R1(WS-SUB2: WS-LEN-O) = WS-STR-O(1: WS-LEN-O)
+               PERFORM 1300-CHECK-SENDER-CRITERIA
+               PERFORM 1300-CHECK-SEG-AND-LOC
+               PERFORM 1300-CHECK-WRAP-CRITERIA
+               PERFORM 1340-SHOW-DISPLAY-STUFF
+               IF WS-ISA-SENDER-SW = 'Y'
+                   AND WS-SEG-AND-LOC-SW = 'Y'
+                   AND WS-SEG-AND-QUAL-SW = 'Y'
+                   AND WS-WRAP-SEP-SW = 'Y'
+                   PERFORM 1400-REPLACE-STRING
+      *    if parm matches and change made, skip rest of parm checks
+                   MOVE WS-PARM01-MAX         TO WS-SUB1.
+
+      *---------------------------------------
+      *    see if user only wants change to be made if X12 batch
+      *    is for a particular sender ID.
+      *---------------------------------------
+       1300-CHECK-SENDER-CRITERIA.
+           IF WS-SENDER = SPACE
+               MOVE 'Y'                        TO WS-ISA-SENDER-SW
+           ELSE
+           IF WS-SEND-LEN = ZERO
+             IF WS-SENDER = WS-UNSTR7
+                 MOVE 'Y'                      TO WS-ISA-SENDER-SW
+             ELSE
+                 CONTINUE
+           ELSE
+           IF WS-SENDER(1: WS-SEND-LEN) = WS-UNSTR7(1: WS-SEND-LEN)
+               MOVE 'Y'                        TO WS-ISA-SENDER-SW.
+
+      *---------------------------------------
+      *    if specified,
+      *    only make change if within a particular segment, and
+      *    optionally at a particular location within the segment.
+      *---------------------------------------
+       1300-CHECK-SEG-AND-LOC.
+           IF WS-SEG = SPACE
+               MOVE 'Y'                       TO WS-SEG-AND-LOC-SW
+           ELSE
+           IF WS-R1-SEG = WS-SEG
+             IF WS-SEG-LOC = ZERO
+                 MOVE 'Y'                     TO WS-SEG-AND-LOC-SW
+             ELSE
+             IF WS-SEG-LOC = WS-SEP-CNT
+                 MOVE 'Y'                     TO WS-SEG-AND-LOC-SW
+             ELSE
+                 MOVE SPACE                   TO WS-SEG-AND-LOC-SW
+           ELSE
+               MOVE SPACE                     TO WS-SEG-AND-LOC-SW.
+      *---------------------------------------
+      *  if seg and qual specified, both must match
+      *  if only qual specified, qual must match
+      *---------------------------------------
+           IF WS-QUAL = SPACE
+               MOVE 'Y'                       TO WS-SEG-AND-QUAL-SW
+           ELSE
+           IF WS-R1-QUAL = WS-QUAL
+               MOVE 'Y'                       TO WS-SEG-AND-QUAL-SW.
+
+      *---------------------------------------
+      *    see if field is prefixed and suffixed with X12 or
+      *    EDIFAC field delimiters or suffixed with EOR characters.
+      *    '*OLD STRING*' gets changed to '*NEW STRING*'
+      *    '*OLD STRING~' gets changed to '*NEW STRING~'
+      *    'HOLD STRING~' does not.
+      *---------------------------------------
+       1300-CHECK-WRAP-CRITERIA.
+           IF WS-WRAP-SW = 'Y'
+               MOVE SPACE                     TO WS-BEFORE-SW
+               MOVE SPACE                     TO WS-AFTER-SW
+               PERFORM 1300-CHECK-FIELD-WRAPPED
+           ELSE
+               MOVE 'Y'                       TO WS-WRAP-SEP-SW.
+
+       1300-CHECK-FIELD-WRAPPED.
+           IF WS-SUB2 > 1
+             IF WS-HOLD-R1(WS-SUB2 - 1: 1) = WS-SEP
+                 MOVE 'Y'                     TO WS-BEFORE-SW.
+           IF WS-SUB2 < (WS-MAX-POS - WS-LEN-O + 1)
+             IF WS-HOLD-R1(WS-SUB2 + WS-LEN-O: 1) = WS-SEP
+                 MOVE 'Y'                     TO WS-AFTER-SW.
+           IF WS-AFTER-SW = SPACE
+             IF WS-FND-EOR = 'X'
+                 PERFORM 1300-TEST-EOR-AFTER
+                     VARYING WS-SUB5 FROM 1 BY 1
+                     UNTIL WS-SUB5 > WS-EOR-MAX
+             ELSE
+             IF WS-SUB2 < (WS-MAX-POS - WS-LEN-O + 1)
+               IF WS-HOLD-R1(WS-SUB2 + WS-LEN-O: 1) = WS-FND-EOR
+                   MOVE 'Y'                     TO WS-AFTER-SW.
+           IF WS-BEFORE-SW = 'Y'
+               AND WS-AFTER-SW = 'Y'
+               MOVE 'Y'                       TO WS-WRAP-SEP-SW.
+
+       1300-TEST-EOR-AFTER.
+           IF WS-SUB2 < WS-MAX-POS
+             IF WS-HOLD-R1(WS-SUB2 + WS-LEN-O: 1) = WS-EOR(WS-SUB5)
+                 MOVE WS-EOR-MAX              TO WS-SUB5
+                 MOVE 'Y'                     TO WS-AFTER-SW.
+
+       1340-SHOW-DISPLAY-STUFF.
+           IF WS-LS-TEST-SW = 'Y'
+               MOVE SPACE                     TO WS-SHOW-SEP
+               IF WS-SEG-LOC > ZERO
+                   MOVE SPACE                 TO WS-SHOW-SEP
+                   STRING ' sep:'             DELIMITED BY SIZE
+                          WS-SEG-LOC          DELIMITED BY SIZE
+                          ' '                 DELIMITED BY SIZE
+                          WS-SEP-CNT          DELIMITED BY SIZE
+                          INTO WS-SHOW-SEP.
+
+           IF WS-LS-TEST-SW = 'Y'
+               DISPLAY  'prm:' WS-SUB1 ' loc:' WS-SUB2 '='
+                       WS-HOLD-R1(WS-SUB2: 8)
+                       '  snd sw:' WS-ISA-SENDER-SW ' seg:'
+                       WS-SEG-AND-LOC-SW ' wrap:' WS-WRAP-SEP-SW
+                       ' qual:' WS-SEG-AND-QUAL-SW
+               DISPLAY '    prm seg:' WS-SEG ' ' WS-R1-SEG
+                       '   qual:' WS-QUAL ' ' WS-R1-QUAL
+                       WS-SHOW-SEP.
+
+       1400-COPY-UNCHANGED.
+           MOVE WS-HOLD-R1(WS-SUB2: 1)     TO WS-HOLD-R2(WS-SUB3: 1).
+           ADD 1                              TO WS-SUB3.
+
+       1400-REPLACE-STRING.
+           MOVE WS-STR-N           TO WS-HOLD-R2(WS-SUB3: WS-LEN-N).
+           PERFORM 1400-SHOW-CHANGE.
+           ADD WS-LEN-O                       TO WS-SUB2.
+           SUBTRACT 1                         FROM WS-SUB2.
+           ADD WS-LEN-N                       TO WS-SUB3.
+           MOVE 'Y'                           TO WS-CHANGE-SW.
+           MOVE 'Y'                           TO WS-LINE-CHANGE-SW.
+
+       1400-SHOW-CHANGE.
+           IF WS-GRP-MATCH-SW = 'Y'
+               MOVE WS-HOLD-R1(WS-SUB2 - 1: WS-LEN-O + 2)
+                                              TO WS-SHOW-BEFORE
+               MOVE SPACE                     TO WS-SHOW-AFTER
+               STRING WS-HOLD-R2(WS-SUB3 - 1: WS-LEN-N + 1)
+                                              DELIMITED BY SIZE
+                      WS-HOLD-R1(WS-SUB2 + WS-LEN-O: 1)
+                                              DELIMITED BY SIZE
+                      INTO WS-SHOW-AFTER
+           ELSE
+               MOVE WS-STR-O                  TO WS-SHOW-BEFORE
+               MOVE WS-STR-N                  TO WS-SHOW-AFTER.
+           IF WS-CODE = 'C'
+               DISPLAY '     rcd ' WS-READ-LONGREC-CNT
+                       '  before  loc ' WS-SUB2 ' len ' WS-LEN-O
+                       '  ' WS-SHOW-BEFORE
+               DISPLAY '                '
+                       '  after   loc ' WS-SUB3 ' len ' WS-LEN-N
+                       '  ' WS-SHOW-AFTER
+               IF WS-SENDER NOT = SPACE
+                   DISPLAY '                          '
+                           'for sender ' WS-SENDER.
+
+      *---------------------------------------
+      *    start at end-of-record and work backwards until non-space
+      *    character found but only zap if non-space is EOR flag
+      *    to avoid truncating legitimate spaces within fields
+      *---------------------------------------
+       1500-CRUNCH-TRAIL-SPACES.
+           PERFORM 1500-CRUNCH
+               VARYING WS-SUB4 FROM WS-R2-LEN BY -1
+               UNTIL WS-SUB4 < 1.
+
+       1500-CRUNCH.
+           IF WS-HOLD-R2(WS-SUB4: 1) = SPACE
+               CONTINUE
+           ELSE
+           IF WS-SUB4 = WS-R2-LEN
+               MOVE ZERO                      TO WS-SUB4
+           ELSE
+               PERFORM 1500-FIND-CRUNCH-EOR
+               IF WS-EOR-SW = 'Y'
+      *            DISPLAY '**** Record ' WS-READ-LONGREC-CNT
+      *                    ' zapped from ' WS-R2-LEN ' to ' WS-SUB4
+                   MOVE 'Y'                   TO WS-ZAP-OCCUR-SW
+                   MOVE WS-SUB4               TO WS-R2-LEN
+                   MOVE ZERO                  TO WS-SUB4
+               ELSE
+                   MOVE ZERO                  TO WS-SUB4.
+
+       1500-FIND-CRUNCH-EOR.
+           MOVE SPACE                         TO WS-EOR-SW.
+           IF WS-FND-EOR = 'X'
+               PERFORM 1500-TEST-EOR
+                   VARYING WS-SUB5 FROM 1 BY 1
+                   UNTIL WS-SUB5 > WS-EOR-MAX
+           ELSE
+           IF WS-HOLD-R2(WS-SUB4: 1) = WS-FND-EOR
+               MOVE 'Y'                       TO WS-EOR-SW.
+
+       1500-TEST-EOR.
+           IF WS-HOLD-R2(WS-SUB4: 1) = WS-EOR(WS-SUB5)
+               MOVE 'Y'                       TO WS-EOR-SW
+               MOVE WS-EOR-MAX                TO WS-SUB5.
+
+       2300-WRITE-LONGOUT.
+           WRITE LONGOUT-RECORD.
+           IF WS-STAT = ZERO
+               ADD 1                          TO WS-WRITE-LONGOUT-CNT
+           ELSE
+               DISPLAY '**** XLT04650 write error on LONGOUT'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE 'Y'                       TO WS-END-LONGREC-SW
+               MOVE +2300                     TO WS-RETURN-CODE.
+
+      ************************************ END XLT04650

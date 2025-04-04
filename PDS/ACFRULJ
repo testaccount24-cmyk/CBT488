@@ -1,0 +1,51 @@
+//useridA  JOB (5000,'userid ACFRULJ'),'ACF rule alteration',
+//             CLASS=S,MSGCLASS=R
+//*-------------------------------------------------
+//*  This JCL is fed into ACFRUL1.  The JCL is altered to include
+//*  a filename and member name from the FINDRULE output.
+//*  The resulting job then clones rule definitions in various members
+//*  from one userid to another, or deletes a user from the member.
+//*-------------------------------------------------
+//JCLPROC  PROC FLEN=X
+//*-------------------------------------------------
+//S010     EXEC PGM=ACFRUL2,REGION=40M,
+//             PARM='&FLEN&LIBR/'
+//STEPLIB  DD  DISP=SHR,DSN=userid.ISPF.OBJ
+//SYSPRINT DD  SYSOUT=*
+//SYSOUT   DD  SYSOUT=*
+//SYSUDUMP DD  SYSOUT=*
+//PARM01   DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFRULP)
+//PARM02   DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFSUMO)
+//ACFI080  DD  DUMMY
+//ACFI132  DD  DUMMY
+//ACFO080  DD  DUMMY,DSN=&&ACFTMP,
+//             DISP=(NEW,PASS,DELETE),
+//             UNIT=LOFDA,SPACE=(TRK,(1,10),RLSE),
+//             RECFM=FB,DSORG=PS,
+//             LRECL=&TLREC,BLKSIZE=&TBLK
+//ACFO132  DD  DUMMY,DSN=&&ACFTMP,
+//             DISP=(NEW,PASS,DELETE),
+//             UNIT=LOFDA,SPACE=(TRK,(1,10),RLSE),
+//             RECFM=FB,DSORG=PS,
+//             LRECL=&TLREC,BLKSIZE=&TBLK
+//*-------------------------------------------------
+//S020     EXEC PGM=IEBGENER,REGION=4096K,
+//             COND=(0,NE)
+//SYSPRINT DD  SYSOUT=*
+//SYSIN    DD  DUMMY
+//SYSUT1   DD  DSN=&&ACFTMP,DISP=(MOD,DELETE,DELETE)
+//SYSUT2   DD  DISP=SHR,DSN=&LIBR
+//*-------------------------------------------------
+//*
+//*        These symbolics are valued within ACFRUL1
+//*        as part of the automatic rule update process
+//*        when submitting ACFRULE
+//*
+//*-------------------------------------------------
+//         PEND
+//J010     EXEC JCLPROC,
+//             FLEN=
+//             TLREC=
+//             TBLK=
+//             LIBR=
+//*-------------------------------------------------

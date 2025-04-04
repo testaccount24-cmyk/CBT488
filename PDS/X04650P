@@ -1,0 +1,81 @@
+*
+*  XLT04650   Alter lrecl 32700 records
+*
+*             Enter up to 200 replacement strings
+*             Enter up to 50 relation groups
+*             Enter up to 20 end-of-record characters
+*
+*  NOTE: Matches and seg/qual searches may not succeed if data
+*        within record has split/wrapped to a separate record.
+*        Not an issue for unstrung data or long streamed records.
+*
+*        ALSO, to keep data positionally stable, try not to change
+*        lengths for ISA or UNB segments.
+*        Ex: specify 'AISIN-UP1' len 09 --> 'AISINUP1 ' len 09
+*
+*
+* C = change record
+* N = change record without SYSOUT display
+* E = end-of-record character
+* R = relate C/N records with further criteria
+* |
+* |                                relation grouping code, any character
+* |                                                                    |
+* | original string to find        original length                     |
+* | |                              01-30                               |
+* | |                              |                        new length |
+* | |                              |  replacement string,        00-30 |
+* | |                              |  |  can be spaces               | |
+* | |                              |  |                              | |
+* - ----+----1----+----2----+----- -- ----+----1----+----2----+----- --
+  C N3*5001 DONALD-DUCK HWY        23 N3*5001 DONALD DUCK HWY        23
+  C 3905-81ST AVE                  13 3905 81ST AVE                  13
+* C AISIN-CP1                      09 AISINCP1                       09A
+* N -                              01                                00B
+  N -                              01                                00C
+* N -                              01                                00D
+  N 21090                          05 1367                           04E
+  N 1368                           04 21090                          05F
+*
+*
+*   RELATION GROUPS only invoked if matched to group code above
+*
+*   grouping code from C/N record above
+*   |
+*   | Y=string wrapped in seperators: only make change if the string
+*   | |  is preceded with a separator and is suffixed with a separator
+*   | |  or EOR character. '*PCL~' becomes '*935~', '4PCL2' not changed
+*   | |
+*   | | only alter items for EDI with this sender ID
+*   | | |               opt sender length - only match len portion
+*   | | |               |  opt segment identifier (LIN, PO1, etc)
+*   | | |               |  |   opt location (item after separator)
+*   | | |               |  |   |  ex: N1*SU*X where loc for X is 02
+*   | | |               |  |   |  opt segment qualifier (SF, SU etc)
+*   | | |               |  |   |  |   only matches to first qualifier
+*   | | |               |  |   |  |
+* - - - --------------- -- --- -- --
+* R A   AISIN-          06 ISA 06       'AISIN-xx1' to 'AISINxx1 '
+* R B   AISIN-          06 GS  02       'AISIN-xx1' to 'AISINxx1 '
+  R C   AISIN-          06 LIN 03       remove dash from part nbr
+* R D   AISIN-          06 REF 02 MK    remove dash PO nbr
+  R E   AISIN-CP1       09 N1  04 SU    change 21090 to 1367 shelbyville
+  R F   AISIN-          06 N1  04 SU    change location 1368 to 21090
+*
+*
+*   end-of-record character (HX on line to view) :
+*   |  XLT04650 only zaps trailing spaces when EOR is the rightmost
+*   |  non-blank character on the line
+*   |  (these have been set to spaces for movement to CBT tape.
+*   |   type "hex on" and re-value these to the hex value next to each).
+* - -
+  E     A1
+  E     B0
+  E     0D
+  E     1C
+  E     15
+  E     22
+  E     65
+  E     7C
+  E     7D
+*

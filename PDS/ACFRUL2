@@ -1,0 +1,1062 @@
+
+       TITLE '  ACFRUL2: Alter ACF rule members'.
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID.    ACFRUL2.
+      **********************************************************CX006B
+      *@@@ C3 Alter ACF rule members
+      ****************************************************************
+      * Date written: 06/29/2023
+      * Author      : Jim Iannone
+      *               Alter ACF rule members, either by cloning lines
+      *               for a given userid or by deleting lines for a
+      *               given userid.
+      ****************************************************************
+      * Date changed: 03/25/2024
+      *               option 'M' to uncomment deleted lines
+      *               alter option 'U' method of operation
+      ****************************************************************
+
+       ENVIRONMENT DIVISION.
+
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           C01 IS PAGE-TOP.
+
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+
+           SELECT ACFI080              ASSIGN TO ACFI080
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT ACFI132              ASSIGN TO ACFI132
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT PARM01               ASSIGN TO PARM01
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT PARM02               ASSIGN TO PARM02
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT ACFO080              ASSIGN TO ACFO080
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT ACFO132              ASSIGN TO ACFO132
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+       DATA DIVISION.
+       FILE SECTION.
+
+       FD  ACFI080
+           RECORDING MODE F.
+       01  ACFI080-RECORD.
+           05  ACFI080-RCD             PIC  X(80).
+
+       FD  ACFI132
+           RECORDING MODE F.
+       01  ACFI132-RECORD.
+           05  ACFI132-RCD             PIC  X(132).
+
+       FD  PARM01
+           RECORDING MODE F.
+       01  PARM01-RECORD.
+           05  PARM01-RCD              PIC  X(80).
+           05  FILLER REDEFINES PARM01-RCD.
+               10  PARM01-DOCU         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-FLAG         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-PROCESS      PIC  X(15).
+               10  FILLER              PIC  X.
+               10  PARM01-VALUE        PIC  X(15).
+               10  FILLER              PIC  X(37).
+               10  PARM01-EXTRA        PIC  X(08).
+
+       FD  PARM02
+           RECORDING MODE F.
+       01  PARM02-RECORD.
+           05  PARM02-RCD              PIC  X(80).
+           05  PARM02-RCD1 REDEFINES PARM02-RCD.
+               10  PARM02-DOCU         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM02-FLAG         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM02-DSN          PIC  X(44).
+               10  FILLER              PIC  X.
+               10  PARM02-MEMBER       PIC  X(08).
+               10  FILLER              PIC  X.
+               10  PARM02-TRK          PIC  XXX.
+               10  FILLER              PIC  X.
+               10  PARM02-ISSUE        PIC  X(10).
+               10  PARM02-EXTRA        PIC  X(08).
+
+       FD  ACFO080
+           RECORDING MODE F.
+       01  ACFO080-RECORD.
+           05  ACFO080-RCD             PIC  X(80).
+
+       FD  ACFO132
+           RECORDING MODE F.
+       01  ACFO132-RECORD.
+           05  ACFO132-RCD             PIC  X(132).
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-START.
+           05  FILLER                  PIC  X(32)    VALUE
+               ' Working storage ACFRUL2 start '.
+
+       01  WS-WORK-FIELDS.
+           05  WS-STAT                 PIC  99       VALUE ZERO.
+           05  WS-RETURN-CODE          PIC S9(04)    VALUE ZERO COMP.
+           05  WS-TALLY                PIC S9(05)    VALUE ZERO COMP.
+           05  WS-LINE-MAX             PIC  9(05)    VALUE ZERO.
+           05  WS-INSERT               PIC  9(05)    VALUE ZERO.
+           05  WS-LRECL                PIC  999      VALUE ZERO.
+           05  WS-USRF-LEN             PIC  999      VALUE ZERO.
+           05  WS-USRT-LEN             PIC  999      VALUE ZERO.
+           05  WS-UVAL-LEN             PIC  999      VALUE ZERO.
+           05  WS-DAF-LEN              PIC  999      VALUE ZERO.
+           05  WS-DAT-LEN              PIC  999      VALUE ZERO.
+           05  WS-DDT-LEN              PIC  999      VALUE ZERO.
+           05  WS-REMF-LEN             PIC  999      VALUE ZERO.
+           05  WS-REMT-LEN             PIC  999      VALUE ZERO.
+           05  WS-SPECIAL              PIC  999      VALUE ZERO.
+           05  WS-UID-LOC              PIC  999      VALUE ZERO.
+           05  WS-SCAN-LIM             PIC  9(05)    VALUE ZERO.
+           05  WS-DA-POS               PIC  9(05)    VALUE ZERO.
+           05  WS-LS-DATA              PIC  X(55)    VALUE SPACE.
+           05  FILLER REDEFINES WS-LS-DATA.
+               10  WS-LS-FILE          PIC  X.
+               10  WS-LS-DSN           PIC  X(54).
+           05  WS-INIT                 PIC  X(04)    VALUE SPACE.
+           05  WS-USERF                PIC  X(10)    VALUE SPACE.
+           05  WS-USERT                PIC  X(10)    VALUE SPACE.
+           05  WS-DSN                  PIC  X(44)    VALUE SPACE.
+           05  WS-MEMBER               PIC  X(10)    VALUE SPACE.
+           05  WS-ERR-MSG              PIC  X(10)    VALUE SPACE.
+           05  WS-MESSAGE              PIC  X(60)    VALUE SPACE.
+           05  WS-UID-STR              PIC  X(30)    VALUE SPACE.
+           05  WS-PROCESS              PIC  X        VALUE SPACE.
+           05  WS-GAP                  PIC  X        VALUE SPACE.
+           05  WS-DA-SW                PIC  X        VALUE SPACE.
+           05  WS-TRAIL-SW             PIC  X        VALUE SPACE.
+           05  WS-U-DT-SW              PIC  X        VALUE SPACE.
+           05  WS-U-DT-GRP-SW          PIC  X        VALUE SPACE.
+           05  WS-ASTERISK-SW          PIC  X        VALUE SPACE.
+           05  WS-1-CYMD               PIC  X(08)    VALUE SPACE.
+           05  WS-1-MDY8               PIC  X(08)    VALUE SPACE.
+           05  WS-2-MDY8               PIC  X(08)    VALUE SPACE.
+           05  WS-ERR-TYPE             PIC  X        VALUE SPACE.
+           05  WS-USER-FND-SW          PIC  X        VALUE SPACE.
+           05  WS-USER-EVER-FND-SW     PIC  X        VALUE SPACE.
+           05  WS-UID-FND-SW           PIC  X        VALUE SPACE.
+           05  WS-UID-EVER-FND-SW      PIC  X        VALUE SPACE.
+           05  WS-CALL-STV0270B        PIC  X(08)    VALUE 'STV0270B'.
+           05  WS-CALL-STV0400B        PIC  X(08)    VALUE 'STV0400B'.
+           05  WS-INTRDR-END           PIC  X(05)    VALUE '/*EOF'.
+      *    DELIMITER |
+           05  WS-BAR1                 PIC  X        VALUE X'4F'.
+      *    DELIMITER ¦
+           05  WS-BAR2                 PIC  X        VALUE X'6A'.
+           05  WS-ADDED                PIC  X(22)    VALUE SPACE.
+           05  WS-DEL                  PIC  X(22)    VALUE SPACE.
+           05  WS-U-VALUE              PIC  X(13)    VALUE SPACE.
+           05  FILLER REDEFINES WS-U-VALUE.
+               10  WS-U-VAL-DT         PIC  X(08).
+               10  FILLER              PIC  X(05).
+           05  WS-HOLD-LINE            PIC  X(132)   VALUE SPACE.
+
+       01  WS-COUNT-FIELDS             COMP-3.
+           05  WS-READ-ACFI080-CNT     PIC S9(07)    VALUE ZERO.
+           05  WS-READ-ACFI132-CNT     PIC S9(07)    VALUE ZERO.
+           05  WS-WRITE-ACFO080-CNT    PIC S9(07)    VALUE ZERO.
+           05  WS-WRITE-ACFO132-CNT    PIC S9(07)    VALUE ZERO.
+           05  WS-UPDATE-CNT           PIC S9(07)    VALUE ZERO.
+
+       01  WS-SUBSCRIPTS               COMP.
+           05  WS-SUB1                 PIC S9(07)    VALUE ZERO.
+           05  WS-SUB2                 PIC S9(07)    VALUE ZERO.
+           05  WS-SUB3                 PIC S9(07)    VALUE ZERO.
+           05  WS-SUB4                 PIC S9(07)    VALUE ZERO.
+           05  WS-SUB5                 PIC S9(07)    VALUE ZERO.
+           05  WS-STR1                 PIC S9(07)    VALUE ZERO.
+           05  WS-STR2                 PIC S9(07)    VALUE ZERO.
+
+       01  WS-TABLES.
+           05  WS-LINE-TABLE           PIC  X(26600) VALUE SPACE.
+           05  WS-LINE-LINE REDEFINES WS-LINE-TABLE
+                                       OCCURS 200 TIMES.
+               10  WS-LINE-RCD.
+                   15  WS-LINE         PIC  X(132).
+                   15  WS-LINE-FLAG    PIC  X.
+
+       01  WS-SWITCHES.
+           05  WS-END-ACFI080-SW       PIC  X        VALUE 'N'.
+               88  END-OF-ACFI080                    VALUE 'Y'.
+               88  MORE-ACFI080-RCDS                 VALUE 'N'.
+           05  WS-END-ACFI132-SW       PIC  X        VALUE 'N'.
+               88  END-OF-ACFI132                    VALUE 'Y'.
+               88  MORE-ACFI132-RCDS                 VALUE 'N'.
+           05  WS-FIRST-RCD-SW         PIC  X        VALUE 'Y'.
+               88  FIRST-RECORD                      VALUE 'Y'.
+
+       01  WS-END.
+           05  FILLER                  PIC  X(16)    VALUE
+               '  ACFRUL2 END  '.
+
+       LINKAGE SECTION.
+
+       01  LS-FIELD.
+           05  LS-LENGTH               PIC S9(04)    COMP.
+           05  LS-DATA                 PIC  X(55).
+           05  FILLER REDEFINES LS-DATA.
+               10  LS-FILE             PIC  X.
+               10  LS-DSN              PIC  X(54).
+
+      /
+
+       PROCEDURE DIVISION USING LS-FIELD.
+
+       0100-PROGRAM-ENTRY.
+           MOVE +0000                         TO WS-RETURN-CODE.
+           DISPLAY '    '.
+           DISPLAY '**** ACFRUL2 alter ACF rules'.
+
+           MOVE SPACE                         TO WS-LINE-TABLE.
+           PERFORM 0200-OPEN-FILES.
+
+           MOVE SPACE                         TO WS-ERR-TYPE.
+           MOVE 'XXX'                         TO WS-INIT.
+           MOVE 'BEFORE'                      TO WS-USERF.
+           MOVE 'AFTER'                       TO WS-USERT.
+           MOVE SPACE                         TO WS-PROCESS.
+           MOVE 'Y'                           TO WS-GAP.
+           MOVE 'Y'                           TO WS-TRAIL-SW.
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 0300-LOAD-PARM01 THRU
+                       0300-LOAD-PARM01-EXIT.
+
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 0400-PREPARE-ACFRULE
+               PERFORM 0400-PROCESS-ACFRULE.
+
+           DISPLAY '**** Rule lines in table   ' WS-LINE-MAX ' of 200'.
+           IF WS-LS-FILE = '8'
+               DISPLAY '**** Records in ACFI080  ' WS-READ-ACFI080-CNT
+               DISPLAY '**** Records written     ' WS-WRITE-ACFO080-CNT.
+           IF WS-LS-FILE = '2'
+               DISPLAY '**** Records in ACFI132  ' WS-READ-ACFI132-CNT
+               DISPLAY '**** Records written     ' WS-WRITE-ACFO132-CNT.
+
+           PERFORM 2400-UPDATE-PARM02 THRU
+                   2400-UPDATE-PARM02-EXIT.
+           DISPLAY '**** Records updated     ' WS-UPDATE-CNT.
+
+           IF WS-RETURN-CODE = ZERO
+             IF WS-ERR-TYPE = SPACE
+                 PERFORM 0300-CLOSE-FILES
+             ELSE
+                 MOVE +0002                   TO RETURN-CODE
+           ELSE
+               DISPLAY '**** ACFRUL2 cond code ' WS-RETURN-CODE
+                       ' set by program'
+               MOVE WS-RETURN-CODE            TO RETURN-CODE.
+
+           DISPLAY '**** ACFRUL2 EOJ encountered '.
+           DISPLAY '    '.
+           STOP RUN.
+
+       0200-OPEN-FILES.
+           OPEN INPUT  ACFI080.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 open error on ACFI080'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN INPUT  ACFI132.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 open error on ACFI132'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN INPUT  PARM01.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 open error on PARM01'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN I-O    PARM02.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 open error on PARM02'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN OUTPUT ACFO080.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 open error on ACFO080'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN OUTPUT ACFO132.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 open error on ACFO132'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+
+       0300-CLOSE-FILES.
+           CLOSE ACFO132.
+           CLOSE ACFO080.
+           CLOSE PARM02.
+           CLOSE PARM01.
+           CLOSE ACFI132.
+           CLOSE ACFI080.
+
+      *---------------------------------------
+      *    load XXX...
+      *---------------------------------------
+       0300-LOAD-PARM01.
+           READ PARM01.
+           IF WS-STAT = 10
+               GO TO 0300-LOAD-PARM01-EXIT
+           ELSE
+           IF WS-STAT > ZERO
+               DISPLAY '**** ACFRUL2 read error on PARM01'
+               DISPLAY '**** File stat = ' WS-STAT
+               MOVE +0300                     TO WS-RETURN-CODE
+               GO TO 0300-LOAD-PARM01-EXIT.
+
+           IF PARM01-DOCU = '*'
+               GO TO 0300-LOAD-PARM01.
+
+           IF PARM01-FLAG = 'F'
+               PERFORM 0300-PARM01-FIELD.
+
+           GO TO 0300-LOAD-PARM01.
+
+       0300-LOAD-PARM01-EXIT. EXIT.
+
+       0300-PARM01-FIELD.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'INITIALS'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-INIT.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'FROM USERID'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-USERF.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'TO USERID'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-USERT.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'PROCESS'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-PROCESS
+               IF WS-PROCESS = 'U'
+                   MOVE PARM01-VALUE(3: 8)    TO WS-2-MDY8.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'GAP'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-GAP.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'TRAIL'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-TRAIL-SW.
+
+      *---------------------------------------
+      *    X
+      *---------------------------------------
+       0400-PREPARE-ACFRULE.
+           MOVE FUNCTION CURRENT-DATE(1: 8)   TO WS-1-CYMD.
+           MOVE '00/00/00'                    TO WS-1-MDY8.
+           MOVE WS-1-CYMD(5: 2)               TO WS-1-MDY8(1: 2).
+           MOVE WS-1-CYMD(7: 2)               TO WS-1-MDY8(4: 2).
+           MOVE WS-1-CYMD(3: 2)               TO WS-1-MDY8(7: 2).
+
+           PERFORM 0500-GET-LINKAGE.
+
+           MOVE 132                           TO WS-LRECL.
+           IF WS-LS-FILE = '8'
+               MOVE 080                       TO WS-LRECL.
+           INSPECT WS-USERF REPLACING FIRST ' ' BY ')'.
+           INSPECT WS-USERT REPLACING FIRST ' ' BY ')'.
+           MOVE ZERO                          TO WS-TALLY.
+           INSPECT WS-USERF TALLYING WS-TALLY FOR ALL ' '.
+           COMPUTE WS-USRF-LEN = 10 - WS-TALLY.
+           MOVE ZERO                          TO WS-TALLY.
+           INSPECT WS-USERT TALLYING WS-TALLY FOR ALL ' '.
+           COMPUTE WS-USRT-LEN = 10 - WS-TALLY.
+
+      *    DA(ADDED MM/DD/YY XXX)  gap=y
+      *    DA(ADDED MM/DD/YYXXX)   gap=n
+           MOVE SPACE                         TO WS-ADDED.
+           IF WS-GAP = 'Y'
+               STRING 'DA(ADDED '             DELIMITED BY SIZE
+                      WS-1-MDY8               DELIMITED BY SIZE
+                      ' '                     DELIMITED BY SIZE
+                      WS-INIT                 DELIMITED BY ' '
+                      ')'                     DELIMITED BY SIZE
+                      INTO WS-ADDED
+               MOVE 22                        TO WS-DAT-LEN
+           ELSE
+               STRING 'DA(ADDED '             DELIMITED BY SIZE
+                      WS-1-MDY8               DELIMITED BY SIZE
+                      WS-INIT                 DELIMITED BY ' '
+                      ')'                     DELIMITED BY SIZE
+                      INTO WS-ADDED
+               MOVE 21                        TO WS-DAT-LEN.
+               MOVE SPACE                     TO WS-DEL.
+           IF WS-GAP = 'Y'
+               STRING 'DA(DEL '               DELIMITED BY SIZE
+                      WS-1-MDY8               DELIMITED BY SIZE
+                      ' '                     DELIMITED BY SIZE
+                      WS-INIT                 DELIMITED BY ' '
+                      ')'                     DELIMITED BY SIZE
+                      INTO WS-DEL
+               MOVE 20                        TO WS-DDT-LEN
+           ELSE
+               STRING 'DA(DEL '               DELIMITED BY SIZE
+                      WS-1-MDY8               DELIMITED BY SIZE
+                      WS-INIT                 DELIMITED BY ' '
+                      ')'                     DELIMITED BY SIZE
+                      INTO WS-DEL
+               MOVE 19                        TO WS-DDT-LEN.
+
+      *    '03/28/24 ABC)' or '03/28/24ABC) '
+           MOVE SPACE                         TO WS-U-VALUE.
+           IF WS-GAP = 'Y'
+               STRING WS-1-MDY8               DELIMITED BY SIZE
+                      ' '                     DELIMITED BY SIZE
+                      WS-INIT                 DELIMITED BY ' '
+                      ')'                     DELIMITED BY SIZE
+                      INTO WS-U-VALUE
+           ELSE
+               STRING WS-1-MDY8               DELIMITED BY SIZE
+                      WS-INIT                 DELIMITED BY ' '
+                      ')'                     DELIMITED BY SIZE
+                      INTO WS-U-VALUE.
+           IF WS-2-MDY8 NOT = SPACE
+               MOVE WS-2-MDY8                 TO WS-U-VAL-DT.
+           MOVE ZERO                          TO WS-TALLY.
+           INSPECT WS-U-VALUE TALLYING WS-TALLY FOR ALL ' '.
+           IF WS-GAP = 'Y'
+               COMPUTE WS-UVAL-LEN = 14 - WS-TALLY
+           ELSE
+               COMPUTE WS-UVAL-LEN = 13 - WS-TALLY.
+
+           EVALUATE WS-PROCESS
+               WHEN 'C'  DISPLAY '**** Process: C    Cloning from '
+                         WS-USERF ' to ' WS-USERT
+               WHEN 'D'  DISPLAY '**** Process: D    Comment lines'
+                       ' containing ' WS-USERF
+               WHEN 'M'  DISPLAY '**** Process: M    Uncomment lines'
+                       ' containing ' WS-USERF
+               WHEN 'Z'  DISPLAY '**** Process: Z    Remove lines'
+                       ' containing ' WS-USERF
+               WHEN 'U'  DISPLAY '**** Process: U    Undo previous'
+                       ' changes for ' WS-U-VALUE
+               WHEN OTHER  DISPLAY '**** Process unspecified.  Set in'
+                       ' PARM01 input parm file.'
+           END-EVALUATE.
+
+           DISPLAY '**** DSN is ' WS-LS-DSN.
+           MOVE SPACE                         TO WS-DSN WS-MEMBER.
+           UNSTRING WS-LS-DSN                 DELIMITED BY '('
+               INTO WS-DSN WS-MEMBER.
+           IF WS-MEMBER = WS-USERF
+               DISPLAY '**** Skipping alteration to FROM user rule:'
+               DISPLAY '     Member name ' WS-MEMBER ' is same as'
+                       ' from userid ' WS-USERF
+               MOVE 'member nm '              TO WS-ERR-MSG
+               MOVE 'M'                       TO WS-ERR-TYPE.
+
+       0400-PROCESS-ACFRULE.
+           MOVE ZERO                          TO WS-SUB1.
+           MOVE ZERO                          TO WS-INSERT.
+           IF WS-RETURN-CODE = ZERO
+             IF WS-LS-FILE = '8'
+                 PERFORM 1100-GET-ACFI080
+                     UNTIL END-OF-ACFI080
+                 IF WS-ERR-TYPE = '2'
+                     CONTINUE
+                 ELSE
+                     PERFORM 1300-ALTER-TABLE
+                     PERFORM 2000-DUMP-TABLE.
+
+           IF WS-RETURN-CODE = ZERO
+             IF WS-LS-FILE = '2'
+                 PERFORM 1100-GET-ACFI132
+                     UNTIL END-OF-ACFI132
+                 IF WS-ERR-TYPE = '2'
+                     CONTINUE
+                 ELSE
+                     PERFORM 1300-ALTER-TABLE
+                     PERFORM 2000-DUMP-TABLE.
+
+       0500-GET-LINKAGE.
+           IF LS-LENGTH = ZERO
+               DISPLAY '**** Parm length is zero '
+               MOVE +0500                     TO WS-RETURN-CODE
+           ELSE
+           IF LS-LENGTH > LENGTH OF WS-LS-DATA
+               DISPLAY '**** Parm length is excessive '
+               MOVE +0500                     TO WS-RETURN-CODE
+           ELSE
+               MOVE LS-DATA(1: LS-LENGTH)     TO WS-LS-DATA.
+
+      ****************************************
+
+       1100-GET-ACFI080.
+           PERFORM 1100-READ-ACFI080.
+           IF MORE-ACFI080-RCDS
+               PERFORM 1200-SELECT-ACFI080
+           ELSE
+               MOVE WS-SUB1                   TO WS-LINE-MAX.
+
+       1100-READ-ACFI080.
+           READ ACFI080.
+           IF WS-STAT = ZERO
+               ADD 1                          TO WS-READ-ACFI080-CNT
+           ELSE
+           IF WS-STAT = 10
+               MOVE 'Y'                       TO WS-END-ACFI080-SW
+           ELSE
+               DISPLAY '**** ACFRUL2 read error on ACFI080 '
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +1100                     TO WS-RETURN-CODE.
+
+       1200-SELECT-ACFI080.
+           IF WS-SUB1 < 200
+               ADD 1                          TO WS-SUB1
+               MOVE ACFI080-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF WS-ERR-TYPE = SPACE
+               PERFORM 1300-RECOVERY
+               MOVE ACFI080-RCD               TO ACFO080-RCD
+               PERFORM 3000-WRITE-ACFO080
+           ELSE
+               MOVE ACFI080-RCD               TO ACFO080-RCD
+               PERFORM 3000-WRITE-ACFO080.
+
+      ****************************************
+
+       1100-GET-ACFI132.
+           PERFORM 1100-READ-ACFI132.
+           IF MORE-ACFI132-RCDS
+               PERFORM 1200-SELECT-ACFI132
+           ELSE
+               MOVE WS-SUB1                   TO WS-LINE-MAX.
+
+       1100-READ-ACFI132.
+           READ ACFI132.
+           IF WS-STAT = ZERO
+               ADD 1                          TO WS-READ-ACFI132-CNT
+           ELSE
+           IF WS-STAT = 10
+               MOVE 'Y'                       TO WS-END-ACFI132-SW
+           ELSE
+               DISPLAY '**** ACFRUL2 read error on ACFI132 '
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +1100                     TO WS-RETURN-CODE.
+
+       1200-SELECT-ACFI132.
+           IF WS-SUB1 < 200
+               ADD 1                          TO WS-SUB1
+               MOVE ACFI132-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF WS-ERR-TYPE = SPACE
+               PERFORM 1300-RECOVERY
+               MOVE ACFI132-RCD               TO ACFO132-RCD
+               PERFORM 3000-WRITE-ACFO132
+           ELSE
+               MOVE ACFI132-RCD               TO ACFO132-RCD
+               PERFORM 3000-WRITE-ACFO132.
+
+       1300-RECOVERY.
+           PERFORM 2000-DUMP-TABLE.
+           DISPLAY '**** ACFRUL2 rule member contains > 200 records.'.
+           DISPLAY '**** Skipping any alterations to this member.'.
+           MOVE '>200 rcds '                  TO WS-ERR-MSG
+           MOVE '2'                           TO WS-ERR-TYPE.
+
+      *---------------------------------------
+      *    Full file has been loaded into table
+      *---------------------------------------
+       1300-ALTER-TABLE.
+           IF WS-ERR-TYPE = SPACE
+             IF WS-PROCESS = 'U'
+                 MOVE 'C'                     TO WS-ERR-TYPE
+                 MOVE 'cmnt ntfnd'            TO WS-ERR-MSG
+                 PERFORM 1300-UNDO-PREV-CHANGES
+             ELSE
+                 PERFORM 1300-MAKE-NEW-CHANGES.
+
+
+      *---------------------------------------
+      *    'Undo' logic
+      *---------------------------------------
+       1300-UNDO-PREV-CHANGES.
+           MOVE SPACE                         TO WS-U-DT-SW.
+           MOVE SPACE                         TO WS-U-DT-GRP-SW.
+           MOVE ZERO                          TO WS-SCAN-LIM.
+           COMPUTE WS-SCAN-LIM = 132 - WS-UVAL-LEN + 1.
+           PERFORM 1300-FIND-CHANGED-LINE
+               VARYING WS-SUB1 FROM 1 BY 1
+               UNTIL WS-SUB1 > WS-LINE-MAX.
+
+       1300-FIND-CHANGED-LINE.
+           IF WS-LINE(WS-SUB1)(1: 1) = '$' OR '%'
+               CONTINUE
+           ELSE
+               PERFORM 1300-NOT-TOP-OF-MEMBER.
+
+       1300-NOT-TOP-OF-MEMBER.
+           MOVE SPACE                         TO WS-U-DT-SW.
+      *    DISPLAY WS-SUB1 ' ' WS-SUB2 ' ' WS-UVAL-LEN ' ' WS-U-VALUE.
+           PERFORM 1300-FIND-PREV-CHANGE
+               VARYING WS-SUB2 FROM 1 BY 1
+               UNTIL WS-SUB2 > WS-SCAN-LIM.
+           IF WS-U-DT-SW = 'Y'
+               PERFORM 1300-DT-CHANGE-FOUND
+           ELSE
+               MOVE SPACE                     TO WS-USER-FND-SW
+               PERFORM 1300-FIND-U-USERID
+                   VARYING WS-SUB2 FROM 1 BY 1
+                   UNTIL WS-SUB2 > WS-SCAN-LIM
+               MOVE ZERO                      TO WS-TALLY
+               INSPECT WS-LINE(WS-SUB1) TALLYING WS-TALLY FOR ALL '/'
+               IF WS-TALLY > 1
+                   MOVE SPACE                 TO WS-U-DT-GRP-SW
+               ELSE
+               IF WS-USER-FND-SW = SPACE
+                   MOVE SPACE                 TO WS-U-DT-GRP-SW.
+
+      *    A comment from a previous change "MM/DD/YY XXX"  was found.
+      *    Either zap previously cloned records or uncomment
+      *    previously commented records.  Note there is no way to
+      *    restore either these zapped records or previously deleted
+      *    (with process switch "Z") records.
+      *
+           IF WS-U-DT-GRP-SW = 'Y'
+             IF WS-LINE(WS-SUB1)(1: 1) = '*'
+                 DISPLAY '     Undo: ' WS-USERF ' for date '
+                         WS-U-VALUE ' on line ' WS-SUB1
+                         ' uncommented'
+                 MOVE 'A'                  TO WS-LINE-FLAG(WS-SUB1)
+                 MOVE SPACE                TO WS-LINE(WS-SUB1)(1: 1)
+             ELSE
+                 DISPLAY '     Undo: ' WS-USERF ' for date '
+                         WS-U-VALUE ' on line ' WS-SUB1 ' zapped'
+                 MOVE 'Z'                  TO WS-LINE-FLAG(WS-SUB1).
+
+       1300-FIND-PREV-CHANGE.
+           IF WS-LINE(WS-SUB1)(WS-SUB2: WS-UVAL-LEN) = WS-U-VALUE
+               MOVE 'Y'                       TO WS-U-DT-SW
+               MOVE 'Y'                       TO WS-U-DT-GRP-SW
+               MOVE WS-SCAN-LIM               TO WS-SUB2.
+
+       1300-DT-CHANGE-FOUND.
+           MOVE 'user ntfnd'                  TO WS-ERR-MSG.
+           MOVE SPACE                         TO WS-UID-FND-SW.
+           MOVE SPACE                         TO WS-USERF.
+           MOVE ZERO                          TO WS-UID-LOC.
+           PERFORM VARYING WS-SUB3 FROM 1 BY 1
+               UNTIL WS-SUB3 > 128
+               IF WS-LINE(WS-SUB1)(WS-SUB3: 4) = 'UID('
+                   MOVE WS-SUB3               TO WS-UID-LOC
+                   MOVE 'Y'                   TO WS-UID-FND-SW
+                   MOVE 128                   TO WS-SUB3
+               END-IF
+           END-PERFORM.
+
+      *    Capture userid associated with this date comment and
+      *    change all records related to this previous change
+      *
+           IF WS-UID-FND-SW = 'Y'
+               MOVE 1                         TO WS-SUB5
+               MOVE WS-LINE(WS-SUB1)(WS-UID-LOC: ) TO WS-UID-STR
+               MOVE SPACE                     TO WS-ASTERISK-SW
+               PERFORM 1300-BREAKDOWN-USERID
+               IF WS-ASTERISK-SW = 'Y'
+                   MOVE SPACE                 TO WS-ERR-TYPE
+                   INSPECT WS-USERF REPLACING FIRST ' ' BY ')'
+                   MOVE ZERO                  TO WS-TALLY
+                   INSPECT WS-USERF TALLYING WS-TALLY FOR ALL ' '
+                   COMPUTE WS-USRF-LEN = 10 - WS-TALLY
+               ELSE
+                   MOVE SPACE                 TO WS-U-DT-GRP-SW.
+
+      *    uid(lofxmi5**mis083) r(a) e(
+      *                 -------
+      *
+       1300-BREAKDOWN-USERID.
+           PERFORM VARYING WS-SUB4 FROM 1 BY 1
+               UNTIL WS-SUB4 > 30
+               IF WS-UID-STR(WS-SUB4: 1) = '('
+                   MOVE 1                     TO WS-SUB5
+                   MOVE SPACE                 TO WS-USERF
+               ELSE
+               IF WS-UID-STR(WS-SUB4: 1) = '*'
+                   MOVE 1                     TO WS-SUB5
+                   MOVE SPACE                 TO WS-USERF
+                   MOVE 'Y'                   TO WS-ASTERISK-SW
+               ELSE
+               IF WS-UID-STR(WS-SUB4: 1) = ')'
+                   MOVE 30                    TO WS-SUB4
+               ELSE
+                   MOVE WS-UID-STR(WS-SUB4: 1)
+                        TO WS-USERF(WS-SUB5: 1)
+                   ADD 1                      TO WS-SUB5
+               END-IF
+               END-IF
+               END-IF
+           END-PERFORM.
+
+       1300-FIND-U-USERID.
+           IF WS-LINE(WS-SUB1)(WS-SUB2: WS-USRF-LEN) = WS-USERF
+               MOVE 'Y'                       TO WS-USER-FND-SW
+               MOVE WS-SCAN-LIM               TO WS-SUB2.
+
+      *---------------------------------------
+      *    All changes except 'U'
+      *---------------------------------------
+       1300-MAKE-NEW-CHANGES.
+           MOVE ZERO                          TO WS-SPECIAL.
+           MOVE ZERO                          TO WS-SCAN-LIM.
+           COMPUTE WS-SCAN-LIM = 132 - WS-USRF-LEN + 1.
+           MOVE 'I'                           TO WS-ERR-TYPE.
+           MOVE 'no insert'                   TO WS-ERR-MSG.
+           PERFORM 1300-FIND-INSERT-LINE
+               VARYING WS-SUB1 FROM 1 BY 1
+               UNTIL WS-SUB1 > WS-LINE-MAX.
+           MOVE SPACE                         TO WS-UID-FND-SW.
+           MOVE SPACE                         TO WS-UID-EVER-FND-SW.
+           MOVE SPACE                         TO WS-USER-EVER-FND-SW.
+           PERFORM 1300-FIND-SOURCE-USERID
+               VARYING WS-SUB1 FROM WS-LINE-MAX BY -1
+               UNTIL WS-SUB1 < WS-INSERT.
+           IF WS-UID-EVER-FND-SW = SPACE
+               MOVE 'U'                       TO WS-ERR-TYPE
+               MOVE 'uid notfnd'              TO WS-ERR-MSG.
+           IF WS-USER-EVER-FND-SW = SPACE
+               MOVE 'S'                       TO WS-ERR-TYPE
+               MOVE 'usr notfnd'              TO WS-ERR-MSG.
+
+      *---------------------------------------
+      *    Find first line starting with a space, unless userid is
+      *    found in commented lines prior to lines starting with space.
+      *---------------------------------------
+       1300-FIND-INSERT-LINE.
+           IF WS-LINE(WS-SUB1)(1: 1) = '$' OR '%'
+               MOVE WS-SUB1                   TO WS-SPECIAL
+           ELSE
+           IF WS-LINE(WS-SUB1)(1: 1) = ' '
+               MOVE SPACE                     TO WS-ERR-TYPE
+               MOVE WS-SUB1                   TO WS-INSERT
+               MOVE WS-LINE-MAX               TO WS-SUB1
+           ELSE
+           IF WS-LINE(WS-SUB1)(1: 1) = '*'
+             IF WS-SPECIAL > ZERO
+                 PERFORM 1300-INSERT-USERID-LOC
+                     VARYING WS-SUB2 FROM 1 BY 1
+                     UNTIL WS-SUB2 > WS-SCAN-LIM.
+
+       1300-INSERT-USERID-LOC.
+           IF WS-LINE(WS-SUB1)(WS-SUB2: WS-USRF-LEN) = WS-USERF
+               MOVE SPACE                     TO WS-ERR-TYPE
+               MOVE WS-SUB1                   TO WS-INSERT
+               MOVE WS-LINE-MAX               TO WS-SUB1
+               MOVE WS-SCAN-LIM               TO WS-SUB2.
+
+       1300-FIND-SOURCE-USERID.
+           MOVE SPACE                         TO WS-UID-FND-SW.
+           PERFORM 1300-UID-LOOP
+               VARYING WS-SUB2 FROM 1 BY 1
+               UNTIL WS-SUB2 > WS-SCAN-LIM.
+           IF WS-UID-FND-SW = 'Y'
+               PERFORM 1300-USERID-LOOP
+                   VARYING WS-SUB2 FROM 1 BY 1
+                   UNTIL WS-SUB2 > WS-SCAN-LIM.
+
+       1300-UID-LOOP.
+           IF WS-LINE(WS-SUB1)(WS-SUB2: 4) = 'UID('
+               MOVE WS-SUB2                   TO WS-UID-LOC
+               MOVE 'Y'                       TO WS-UID-FND-SW
+               MOVE 'Y'                       TO WS-UID-EVER-FND-SW
+               MOVE WS-SCAN-LIM               TO WS-SUB2.
+
+       1300-USERID-LOOP.
+           IF WS-LINE(WS-SUB1)(WS-SUB2: WS-USRF-LEN) = WS-USERF
+               DISPLAY '     Userid found on line ' WS-SUB1
+                       ' at position ' WS-SUB2
+               MOVE 'Y'                       TO WS-USER-EVER-FND-SW
+               IF WS-PROCESS = 'D' OR 'M' OR 'Z'
+                   MOVE WS-PROCESS            TO WS-LINE-FLAG(WS-SUB1)
+                   MOVE WS-SCAN-LIM           TO WS-SUB2
+               ELSE
+               IF WS-PROCESS = 'C'
+                   PERFORM 1300-INSERT-USERF-AND-CLONE.
+
+      *---------------------------------------
+      *    if cloning records, move all records in table down one
+      *    prior to insertion after WS-INSERT record
+      *---------------------------------------
+       1300-INSERT-USERF-AND-CLONE.
+           IF WS-LINE-MAX > 199
+             IF WS-ERR-TYPE = SPACE
+                 DISPLAY '**** ACFRUL2 cloning userid would result '
+                 DISPLAY '**** in table overflow.  Skipping cloning.'
+                 MOVE '>200 clone'            TO WS-ERR-MSG
+                 MOVE '2'                     TO WS-ERR-TYPE.
+           IF WS-ERR-TYPE = SPACE
+             IF WS-INSERT > ZERO
+                 DISPLAY '     Advancing table contents by one record'
+                 PERFORM 1300-ADVANCE-TABLE
+                     VARYING WS-SUB3 FROM WS-LINE-MAX BY -1
+                     UNTIL WS-SUB3 < WS-INSERT
+                 ADD 1                 TO WS-SUB1
+                 ADD 1                 TO WS-SUB3
+                 ADD 1                 TO WS-LINE-MAX
+                 DISPLAY '     Cloning line ' WS-SUB1
+                         ' after line ' WS-SUB3
+                 PERFORM 1300-USER-REMAINDER
+                 PERFORM 1300-INSERT-NEW-USERID
+                 MOVE 'C'              TO WS-LINE-FLAG(WS-SUB3)
+                 MOVE WS-SCAN-LIM      TO WS-SUB2.
+
+       1300-ADVANCE-TABLE.
+           MOVE WS-LINE-RCD(WS-SUB3) TO WS-LINE-RCD(WS-SUB3 + 1).
+
+      *    1........0...
+      *    ABC123) Z XXX     ex:  11 - (1 + 7) = 3
+      *    ABC1) Z   XXX     ex:  11 - (1 + 5) = 5
+       1300-USER-REMAINDER.
+           MOVE ZERO                          TO WS-REMF-LEN.
+           MOVE ZERO                          TO WS-REMT-LEN.
+           COMPUTE WS-REMF-LEN = (WS-LRECL - 7)
+                               - (WS-SUB2 + WS-USRF-LEN).
+           COMPUTE WS-REMT-LEN = (WS-LRECL - 7)
+                               - (WS-SUB2 + WS-USRT-LEN).
+      *    DISPLAY 'WS-REMF-LEN ' WS-REMF-LEN.
+      *    DISPLAY 'WS-REMT-LEN ' WS-REMT-LEN.
+
+       1300-INSERT-NEW-USERID.
+      *    DISPLAY 'USER: ' WS-LINE(WS-SUB1).
+           MOVE WS-LINE(WS-SUB1)(1: WS-SUB2 - 1)
+                                         TO WS-LINE(WS-SUB3).
+           MOVE WS-USERT TO WS-LINE(WS-SUB3)(WS-SUB2: WS-USRT-LEN).
+           MOVE WS-LINE(WS-SUB1)(WS-SUB2 + WS-USRF-LEN: WS-REMF-LEN)
+                TO WS-LINE(WS-SUB3)(WS-SUB2 + WS-USRT-LEN: WS-REMT-LEN).
+           IF WS-TRAIL-SW = 'Y'
+               MOVE WS-LINE(WS-SUB1)(WS-LRECL - 7: 8)
+                              TO WS-LINE(WS-SUB3)(WS-LRECL - 7: 8).
+      *    DISPLAY 'USER: ' WS-LINE(WS-SUB3).
+
+      *---------------------------------------
+      *    After all alterations to rules member contained within
+      *    WS table, write the table out.
+      *---------------------------------------
+       2000-DUMP-TABLE.
+           PERFORM VARYING WS-SUB1 FROM 1 BY 1
+               UNTIL WS-SUB1 > WS-LINE-MAX
+               IF WS-ERR-TYPE = SPACE
+                   PERFORM 2000-SELECT-FROM-TABLE
+               ELSE
+                   PERFORM 2000-SKIP-ALTERATIONS
+               END-IF
+           END-PERFORM.
+
+       2000-SELECT-FROM-TABLE.
+      *    DISPLAY 'LINE ' WS-SUB1 ' FLAG ' WS-LINE-FLAG(WS-SUB1)
+      *            ' ERR ' WS-ERR-TYPE.
+           IF WS-LINE-FLAG(WS-SUB1) = 'Z'
+               ADD 1                          TO WS-UPDATE-CNT
+           ELSE
+           IF WS-LINE-FLAG(WS-SUB1) = 'D'
+               MOVE '*'                       TO WS-LINE(WS-SUB1)(1: 1)
+               ADD 1                          TO WS-UPDATE-CNT
+               PERFORM 2000-PREPARE-DEL-CMNT
+               PERFORM 2000-PICK-OUTPUT-FILE
+           ELSE
+           IF WS-LINE-FLAG(WS-SUB1) = 'M'
+               MOVE ' '                       TO WS-LINE(WS-SUB1)(1: 1)
+               ADD 1                          TO WS-UPDATE-CNT
+               PERFORM 2000-PREPARE-ADD-CMNT
+               PERFORM 2000-PICK-OUTPUT-FILE
+           ELSE
+           IF WS-LINE-FLAG(WS-SUB1) = 'C'
+               ADD 1                          TO WS-UPDATE-CNT
+               PERFORM 2000-PREPARE-ADD-CMNT
+               PERFORM 2000-PICK-OUTPUT-FILE
+           ELSE
+           IF WS-LINE-FLAG(WS-SUB1) = 'A'
+               ADD 1                          TO WS-UPDATE-CNT
+               PERFORM 2000-PICK-OUTPUT-FILE
+           ELSE
+               PERFORM 2000-PICK-OUTPUT-FILE.
+
+       2000-SKIP-ALTERATIONS.
+           IF WS-LINE-FLAG(WS-SUB1) = 'C'
+               CONTINUE
+           ELSE
+               PERFORM 2000-PICK-OUTPUT-FILE.
+
+       2000-PREPARE-DEL-CMNT.
+           PERFORM 2000-FIND-DA-LEN.
+           IF WS-DA-POS > ZERO
+               ADD 1                          TO WS-DA-POS
+               PERFORM 2000-RECORD-REM-DEL
+               PERFORM 2000-DATE-DEL.
+
+       2000-PREPARE-ADD-CMNT.
+           PERFORM 2000-FIND-DA-LEN.
+           IF WS-DA-POS > ZERO
+               ADD 1                          TO WS-DA-POS
+               PERFORM 2000-RECORD-REM-ADD
+               PERFORM 2000-DATE-ADD.
+
+       2000-FIND-DA-LEN.
+           MOVE ZERO                     TO WS-DA-POS.
+           MOVE ZERO                     TO WS-DAF-LEN.
+           MOVE SPACE                    TO WS-DA-SW.
+           PERFORM VARYING WS-SUB2 FROM 1 BY 1
+               UNTIL WS-SUB2 > 112
+               IF WS-LINE(WS-SUB1)(WS-SUB2: 4) = ' DA('
+                   MOVE 'Y'              TO WS-DA-SW
+                   MOVE WS-SUB2          TO WS-DA-POS
+               END-IF
+               IF WS-DA-SW = 'Y'
+                 IF WS-LINE(WS-SUB1)(WS-SUB2: 1) = ')'
+                     COMPUTE WS-DAF-LEN = WS-SUB2 - WS-DA-POS
+                     MOVE 132            TO WS-SUB2
+                 END-IF
+               END-IF
+           END-PERFORM.
+
+       2000-RECORD-REM-DEL.
+           MOVE ZERO                          TO WS-REMF-LEN.
+           MOVE ZERO                          TO WS-REMT-LEN.
+           COMPUTE WS-REMF-LEN = (WS-LRECL - 7)
+                               - (WS-DA-POS + WS-DAF-LEN).
+           COMPUTE WS-REMT-LEN = (WS-LRECL - 7)
+                               - (WS-DA-POS + WS-DDT-LEN).
+
+       2000-RECORD-REM-ADD.
+           MOVE ZERO                          TO WS-REMF-LEN.
+           MOVE ZERO                          TO WS-REMT-LEN.
+           COMPUTE WS-REMF-LEN = (WS-LRECL - 7)
+                               - (WS-DA-POS + WS-DAF-LEN).
+           COMPUTE WS-REMT-LEN = (WS-LRECL - 7)
+                               - (WS-DA-POS + WS-DAT-LEN).
+      *    DISPLAY 'WS-DAF-LEN  ' WS-DAF-LEN.
+      *    DISPLAY 'WS-DAT-LEN  ' WS-DAT-LEN.
+      *    DISPLAY 'WS-REMF-LEN ' WS-REMF-LEN.
+      *    DISPLAY 'WS-REMT-LEN ' WS-REMT-LEN.
+
+       2000-DATE-DEL.
+           MOVE SPACE                         TO WS-HOLD-LINE.
+           MOVE WS-LINE(WS-SUB1)(1: WS-DA-POS) TO WS-HOLD-LINE.
+           MOVE WS-DEL   TO WS-HOLD-LINE(WS-DA-POS: WS-DDT-LEN).
+           MOVE WS-LINE(WS-SUB1)(WS-DA-POS + WS-DAF-LEN: WS-REMF-LEN)
+                TO WS-HOLD-LINE(WS-DA-POS + WS-DDT-LEN: WS-REMT-LEN).
+           IF WS-TRAIL-SW = 'Y'
+               MOVE WS-LINE(WS-SUB1)(WS-LRECL - 7: 8)
+                                 TO WS-HOLD-LINE(WS-LRECL - 7: 8).
+           MOVE WS-HOLD-LINE                  TO WS-LINE(WS-SUB1).
+
+       2000-DATE-ADD.
+           MOVE SPACE                         TO WS-HOLD-LINE.
+      *    DISPLAY 'CMNT: ' WS-LINE(WS-SUB1).
+           MOVE WS-LINE(WS-SUB1)(1: WS-DA-POS) TO WS-HOLD-LINE.
+           MOVE WS-ADDED   TO WS-HOLD-LINE(WS-DA-POS: WS-DAT-LEN).
+           MOVE WS-LINE(WS-SUB1)(WS-DA-POS + WS-DAF-LEN: WS-REMF-LEN)
+                TO WS-HOLD-LINE(WS-DA-POS + WS-DAT-LEN: WS-REMT-LEN).
+           IF WS-TRAIL-SW = 'Y'
+               MOVE WS-LINE(WS-SUB1)(WS-LRECL - 7: 8)
+                                 TO WS-HOLD-LINE(WS-LRECL - 7: 8).
+           MOVE WS-HOLD-LINE                  TO WS-LINE(WS-SUB1).
+      *    DISPLAY 'CMNT: ' WS-HOLD-LINE.
+
+       2000-PICK-OUTPUT-FILE.
+           IF WS-LS-FILE = '8'
+               MOVE WS-LINE(WS-SUB1)          TO ACFO080-RCD
+               PERFORM 3000-WRITE-ACFO080.
+           IF WS-LS-FILE = '2'
+               MOVE WS-LINE(WS-SUB1)          TO ACFO132-RCD
+               PERFORM 3000-WRITE-ACFO132.
+
+       2400-UPDATE-PARM02.
+           READ PARM02.
+           IF WS-STAT = 10
+               GO TO 2400-UPDATE-PARM02-EXIT
+           ELSE
+           IF WS-STAT > ZERO
+               DISPLAY '**** ACFRUL2 read error on PARM02'
+               DISPLAY '**** File stat = ' WS-STAT
+               GO TO 2400-UPDATE-PARM02-EXIT.
+
+           IF PARM02-DOCU = '*'
+               GO TO 2400-UPDATE-PARM02.
+
+           IF PARM02-DSN = SPACE
+               PERFORM 2400-APPEND-PARM02
+           ELSE
+               GO TO 2400-UPDATE-PARM02.
+
+       2400-UPDATE-PARM02-EXIT. EXIT.
+
+       2400-APPEND-PARM02.
+           IF WS-RETURN-CODE = ZERO
+             IF WS-ERR-TYPE = SPACE
+                 MOVE 'Y'                     TO PARM02-FLAG
+             ELSE
+             IF WS-ERR-TYPE = 'C' OR 'I' OR 'U' OR '2' OR 'M'
+                 MOVE 'N'                     TO PARM02-FLAG
+                 MOVE WS-ERR-MSG              TO PARM02-ISSUE
+             ELSE
+             IF WS-ERR-TYPE = 'S'
+                 MOVE 'N'                     TO PARM02-FLAG
+                 MOVE WS-ERR-MSG              TO PARM02-ISSUE
+                 MOVE SPACE                   TO WS-MESSAGE
+                 STRING '**** User '          DELIMITED BY SIZE
+                        WS-USERF              DELIMITED BY ')'
+                        ' not found in rule '    DELIMITED BY SIZE
+                        WS-MEMBER             DELIMITED BY ')'
+                        INTO WS-MESSAGE
+                 DISPLAY WS-MESSAGE
+             ELSE
+                 MOVE 'N'                     TO PARM02-FLAG
+                 MOVE WS-ERR-MSG              TO PARM02-ISSUE
+           ELSE
+               MOVE 'E'                       TO PARM02-FLAG
+               MOVE 'see job'                 TO PARM02-ISSUE
+               MOVE 'Return code not zero'    TO WS-DSN.
+           MOVE WS-DSN                        TO PARM02-DSN.
+           MOVE WS-MEMBER                     TO PARM02-MEMBER.
+           INSPECT PARM02-MEMBER REPLACING FIRST ')' BY ' '.
+           PERFORM 3000-REWRITE-PARM02.
+
+       3000-WRITE-ACFO080.
+           WRITE ACFO080-RECORD.
+           IF WS-STAT = ZERO
+               ADD 1                          TO WS-WRITE-ACFO080-CNT
+           ELSE
+               DISPLAY '**** ACFRUL2 write error on ACFO080'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE 'Y'                       TO WS-END-ACFI080-SW
+               MOVE +3000                     TO WS-RETURN-CODE.
+
+       3000-WRITE-ACFO132.
+           WRITE ACFO132-RECORD.
+           IF WS-STAT = ZERO
+               ADD 1                          TO WS-WRITE-ACFO132-CNT
+           ELSE
+               DISPLAY '**** ACFRUL2 write error on ACFO132'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE 'Y'                       TO WS-END-ACFI132-SW
+               MOVE +3000                     TO WS-RETURN-CODE.
+
+       3000-REWRITE-PARM02.
+           REWRITE PARM02-RECORD.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL2 rewrite error on PARM02'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +3000                     TO WS-RETURN-CODE.
+
+      ************************************ END ACFRUL2
+

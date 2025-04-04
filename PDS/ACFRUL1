@@ -1,0 +1,658 @@
+
+       TITLE '  ACFRUL1: Build ACF rule alteration jobs'.
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID.    ACFRUL1.
+      **********************************************************CX006B
+      *@@@ C3 build ACF rule alteration jobs
+      ****************************************************************
+      * Date written: 06/29/2023
+      * Author      : Jim Iannone
+      *               loop through output of FINDRULE and build
+      *               ACF rule alteration jobs to clone userids into
+      *               rule members.
+      *
+      *               NEWWAIT appears to require this program to be
+      *               compiled with RMODE(24) rather than RMODE(ANY)
+      *
+      ****************************************************************
+      * Date changed: 03/25/2024
+      *               option 'M' to uncomment deleted lines
+      *               alter option 'U' method of operation
+      ****************************************************************
+
+       ENVIRONMENT DIVISION.
+
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           C01 IS PAGE-TOP.
+
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+
+           SELECT FNDRULE              ASSIGN TO FNDRULE
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT PARM01               ASSIGN TO PARM01
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT ACFRULI              ASSIGN TO ACFRULI
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT ACFRULO              ASSIGN TO ACFRULO
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+           SELECT ACFCMPO              ASSIGN TO ACFCMPO
+                                       ORGANIZATION IS SEQUENTIAL
+                                       ACCESS MODE IS SEQUENTIAL
+                                       FILE STATUS IS WS-STAT.
+
+       DATA DIVISION.
+       FILE SECTION.
+
+       FD  FNDRULE
+           RECORDING MODE F.
+       01  FNDRULE-RECORD.
+           05  FNDRULE-RCD             PIC  X(133).
+           05  FILLER REDEFINES FNDRULE-RCD.
+               10  FNDRULE-FILL        PIC  X(36).
+               10  FNDRULE-DSN         PIC  X(97).
+
+       FD  PARM01
+           RECORDING MODE F.
+       01  PARM01-RECORD.
+           05  PARM01-RCD              PIC  X(80).
+           05  PARM01-RCD1 REDEFINES PARM01-RCD.
+               10  PARM01-DOCU         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-FLAG         PIC  X.
+               10  FILLER              PIC  X.
+               10  PARM01-DSN          PIC  X(44).
+               10  FILLER              PIC  X.
+               10  PARM01-LRECL        PIC  X(05).
+               10  FILLER              PIC  X.
+               10  PARM01-BLKSIZE      PIC  X(05).
+               10  FILLER              PIC  X(12).
+               10  PARM01-EXTRA        PIC  X(08).
+           05  PARM01-RCD2 REDEFINES PARM01-RCD.
+               10  FILLER              PIC  X(04).
+               10  PARM01-PROCESS      PIC  X(15).
+               10  FILLER              PIC  X.
+               10  PARM01-VALUE        PIC  X(15).
+               10  FILLER              PIC  X(45).
+
+       FD  ACFRULI
+           RECORDING MODE F.
+       01  ACFRULI-RECORD.
+           05  ACFRULI-RCD             PIC  X(80).
+
+       FD  ACFRULO
+           RECORDING MODE F.
+       01  ACFRULO-RECORD.
+           05  ACFRULO-RCD             PIC  X(80).
+
+       FD  ACFCMPO
+           RECORDING MODE F.
+       01  ACFCMPO-RECORD.
+           05  ACFCMPO-RCD             PIC  X(80).
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-START.
+           05  FILLER                  PIC  X(32)    VALUE
+               ' Working storage ACFRUL1 start '.
+
+       01  WS-WORK-FIELDS.
+           05  WS-STAT                 PIC  99       VALUE ZERO.
+           05  WS-RETURN-CODE          PIC S9(04)    VALUE ZERO COMP.
+           05  WS-TALLY                PIC S9(05)    VALUE ZERO COMP.
+           05  WS-JCLTBL-MAX           PIC  9(05)    VALUE ZERO.
+           05  WS-PARM01-MAX           PIC  9(05)    VALUE ZERO.
+           05  WS-LIBR                 PIC S9(07)    VALUE ZERO.
+           05  WS-TLREC                PIC S9(07)    VALUE ZERO.
+           05  WS-TBLK                 PIC S9(07)    VALUE ZERO.
+           05  WS-I080                 PIC S9(07)    VALUE ZERO.
+           05  WS-I132                 PIC S9(07)    VALUE ZERO.
+           05  WS-O080                 PIC S9(07)    VALUE ZERO.
+           05  WS-O132                 PIC S9(07)    VALUE ZERO.
+           05  WS-DELAY                PIC  99       VALUE ZERO.
+           05  WS-FLEN                 PIC S9(07)    VALUE ZERO.
+           05  WS-LRECL                PIC  X(05)    VALUE SPACE.
+           05  WS-LS-DATA              PIC  X(10)    VALUE SPACE.
+           05  FILLER REDEFINES WS-LS-DATA.
+               10  WS-LS-EXTRA         PIC  X(10).
+           05  WS-1-CYMD               PIC  X(08)    VALUE SPACE.
+           05  WS-2-CYMD               PIC  X(08)    VALUE SPACE.
+           05  FILLER REDEFINES WS-2-CYMD.
+               10  WS-2-CYMD-C         PIC  XX.
+               10  WS-2-CYMD-Y         PIC  XX.
+               10  WS-2-CYMD-M         PIC  XX.
+               10  WS-2-CYMD-D         PIC  XX.
+           05  WS-CALL-STV0270B        PIC  X(08)    VALUE 'STV0270B'.
+           05  WS-CALL-STV0400B        PIC  X(08)    VALUE 'STV0400B'.
+           05  WS-INTRDR-END           PIC  X(05)    VALUE '/*EOF'.
+      *    DELIMITER |
+           05  WS-BAR1                 PIC  X        VALUE X'4F'.
+      *    DELIMITER ¦
+           05  WS-BAR2                 PIC  X        VALUE X'6A'.
+           05  WS-QUOTE-COMMA          PIC  XX       VALUE X'7D6B'.
+           05  WS-QUOTE                PIC  X        VALUE X'7D'.
+           05  WS-COMMA                PIC  X        VALUE X'6B'.
+           05  WS-PROCESS              PIC  X        VALUE SPACE.
+           05  WS-USERF                PIC  X(10)    VALUE SPACE.
+           05  WS-USERT                PIC  X(10)    VALUE SPACE.
+           05  WS-INIT                 PIC  XXX      VALUE SPACE.
+           05  WS-HOLD-DELAY           PIC  XX       VALUE SPACE.
+           05  WS-DSN-FND-SW           PIC  X        VALUE SPACE.
+           05  WS-DSN-ERR-SW           PIC  X        VALUE SPACE.
+           05  WS-UNSTR1               PIC  X(52)    VALUE SPACE.
+           05  WS-UNSTR2               PIC  X(10)    VALUE SPACE.
+           05  WS-UNSTR3               PIC  X(10)    VALUE SPACE.
+           05  WS-HOLD-DSN             PIC  X(60)    VALUE SPACE.
+
+       01  WS-COUNT-FIELDS             COMP-3.
+           05  WS-READ-FNDRULE-CNT     PIC S9(07)    VALUE ZERO.
+           05  WS-JOB-CNT              PIC S9(07)    VALUE ZERO.
+
+       01  WS-SUBSCRIPTS               COMP.
+           05  WS-SUB1                 PIC S9(07)    VALUE ZERO.
+           05  WS-SUB2                 PIC S9(07)    VALUE ZERO.
+           05  WS-STR1                 PIC S9(07)    VALUE ZERO.
+           05  WS-STR2                 PIC S9(07)    VALUE ZERO.
+
+       01  WS-TABLES.
+           05  WS-ACFRUL-TABLE         PIC  X(7200)  VALUE SPACE.
+           05  WS-ACFRUL-LINE REDEFINES WS-ACFRUL-TABLE
+                                       OCCURS 90 TIMES.
+               10  WS-LINE.
+                   15  WS-LINE-P1      PIC  X(20).
+                   15  WS-LINE-P2      PIC  X(60).
+           05  WS-PARM01-TABLE         PIC  X(1620)  VALUE SPACE.
+           05  WS-PARM01-LINE REDEFINES WS-PARM01-TABLE
+                                       OCCURS 30 TIMES.
+               10  WS-P1-LINE.
+                   15  WS-P1-DSN       PIC  X(44).
+                   15  WS-P1-LRECL     PIC  X(05).
+                   15  WS-P1-BLKSIZE   PIC  X(05).
+
+      *    newwait is a delay program on CBT tape #270
+       01  NEWWAIT-DATA.
+           05  NEWWAIT-LEN             PIC S9999     VALUE +4 COMP.
+           05  NEWWAIT-DELAY           PIC  9(04).
+
+       01  WS-SWITCHES.
+           05  WS-END-FNDRULE-SW       PIC  X        VALUE 'N'.
+               88  END-OF-FNDRULE                    VALUE 'Y'.
+               88  MORE-FNDRULE-RCDS                 VALUE 'N'.
+           05  WS-END-ACFRULI-SW       PIC  X        VALUE 'N'.
+               88  END-OF-ACFRULI                    VALUE 'Y'.
+               88  MORE-ACFRULI-RCDS                 VALUE 'N'.
+           05  WS-FIRST-RCD-SW         PIC  X        VALUE 'Y'.
+               88  FIRST-RECORD                      VALUE 'Y'.
+
+       01  WS-END.
+           05  FILLER                  PIC  X(16)    VALUE
+               '  ACFRUL1 END  '.
+
+       LINKAGE SECTION.
+
+       01  LS-FIELD.
+           05  LS-LENGTH               PIC S9(04)    COMP.
+           05  LS-DATA                 PIC  X(10).
+           05  FILLER REDEFINES LS-DATA.
+               10  LS-EXTRA            PIC  X(10).
+
+      /
+
+       PROCEDURE DIVISION USING LS-FIELD.
+
+       0100-PROGRAM-ENTRY.
+           MOVE +0000                         TO WS-RETURN-CODE.
+           PERFORM 0200-OPEN-FILES.
+           DISPLAY '    '.
+           DISPLAY '**** ACFRUL1 build ACF rule alteration JCL'.
+
+           PERFORM 0300-GET-LINKAGE.
+
+           MOVE 8                             TO WS-DELAY.
+           IF WS-RETURN-CODE = ZERO
+               MOVE ZERO                      TO WS-SUB1
+               PERFORM 0300-LOAD-PARM01
+                  THRU 0300-LOAD-PARM01-EXIT
+               PERFORM 0300-EDIT-PARM01-FLAG.
+           DISPLAY '**** Job submission delay     ' WS-DELAY.
+           IF WS-RETURN-CODE = ZERO
+               MOVE ZERO                      TO WS-SUB1
+               PERFORM 0300-LOAD-ACFRULI
+                  THRU 0300-LOAD-ACFRULI-EXIT.
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 1000-PROCESS-FNDRULE.
+
+           DISPLAY '**** DSNs in PARM01        ' WS-PARM01-MAX
+                   ' of 30'.
+           DISPLAY '**** JCL in table          ' WS-JCLTBL-MAX
+                   ' of 90'.
+           DISPLAY '**** Records in FINDRULE ' WS-READ-FNDRULE-CNT.
+           DISPLAY '**** Jobs submitted      ' WS-JOB-CNT.
+
+           IF WS-RETURN-CODE = ZERO
+             IF WS-DSN-ERR-SW = 'Y'
+                 MOVE +0002                   TO RETURN-CODE
+             ELSE
+                 PERFORM 0300-CLOSE-FILES
+           ELSE
+               DISPLAY '**** ACFRUL1 cond code ' WS-RETURN-CODE
+                       ' set by program'
+               MOVE WS-RETURN-CODE            TO RETURN-CODE.
+
+           DISPLAY '**** ACFRUL1 EOJ encountered '.
+           DISPLAY '    '.
+           STOP RUN.
+
+       0200-OPEN-FILES.
+           OPEN INPUT  FNDRULE.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 open error on FNDRULE'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN INPUT  PARM01.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 open error on PARM01'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN INPUT  ACFRULI.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 open error on ACFRULI'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN OUTPUT ACFRULO.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 open error on ACFRULO'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+           OPEN OUTPUT ACFCMPO.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 open error on ACFCMPO'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +0200                     TO WS-RETURN-CODE.
+
+       0300-CLOSE-FILES.
+           CLOSE ACFCMPO.
+           CLOSE ACFRULO.
+           CLOSE ACFRULI.
+           CLOSE PARM01.
+           CLOSE FNDRULE.
+
+       0300-GET-LINKAGE.
+           IF LS-LENGTH = ZERO
+               DISPLAY '**** Parm length is zero '
+               MOVE +0300                     TO WS-RETURN-CODE
+           ELSE
+           IF LS-LENGTH > LENGTH OF WS-LS-DATA
+               DISPLAY '**** Parm length is excessive '
+               MOVE +0300                     TO WS-RETURN-CODE
+           ELSE
+               MOVE LS-DATA(1: LS-LENGTH)     TO WS-LS-DATA.
+
+      *---------------------------------------
+      *    load XXX...
+      *---------------------------------------
+       0300-LOAD-PARM01.
+           READ PARM01.
+           IF WS-STAT = 10
+               MOVE WS-SUB1                   TO WS-PARM01-MAX
+               GO TO 0300-LOAD-PARM01-EXIT
+           ELSE
+           IF WS-STAT > ZERO
+               DISPLAY '**** ACFRUL1 read error on PARM01'
+               DISPLAY '**** File stat = ' WS-STAT
+               MOVE +0300                     TO WS-RETURN-CODE
+               GO TO 0300-LOAD-PARM01-EXIT.
+
+           IF PARM01-DOCU = '*'
+               GO TO 0300-LOAD-PARM01.
+
+           IF WS-SUB1 < 30
+             IF PARM01-FLAG = 'D'
+                 ADD 1                        TO WS-SUB1
+                 MOVE PARM01-DSN              TO WS-P1-DSN(WS-SUB1)
+                 MOVE PARM01-LRECL            TO WS-P1-LRECL(WS-SUB1)
+                 MOVE PARM01-BLKSIZE          TO WS-P1-BLKSIZE(WS-SUB1).
+             IF PARM01-FLAG = 'F'
+                 PERFORM 0300-LOAD-PARM01-FLAG.
+
+           GO TO 0300-LOAD-PARM01.
+
+       0300-LOAD-PARM01-EXIT. EXIT.
+
+       0300-LOAD-PARM01-FLAG.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'PROCESS'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-PROCESS.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'FROM USERID'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-USERF.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'TO USERID'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-USERT.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'INITIALS'
+               MOVE FUNCTION UPPER-CASE(PARM01-VALUE) TO WS-INIT.
+           IF FUNCTION UPPER-CASE(PARM01-PROCESS) = 'DELAY'
+               MOVE PARM01-VALUE(1: 2)        TO WS-HOLD-DELAY.
+
+       0300-EDIT-PARM01-FLAG.
+           IF WS-PROCESS = 'C' OR 'D' OR 'M' OR 'U' OR 'Z'
+               CONTINUE
+           ELSE
+               DISPLAY '**** PARM01 process must be C/D/M/U/Z'
+               MOVE +0300                     TO WS-RETURN-CODE.
+           IF WS-PROCESS = 'C'
+               INSPECT WS-USERF REPLACING FIRST ' ' BY ')'
+               INSPECT WS-USERT REPLACING FIRST ' ' BY ')'.
+           IF WS-USERF = SPACE
+             IF WS-PROCESS = 'U'
+                 CONTINUE
+             ELSE
+                 DISPLAY '**** PARM01 from userid not valued'
+                 MOVE +0300                   TO WS-RETURN-CODE.
+           IF WS-USERT = SPACE
+             IF WS-PROCESS = 'D' OR 'M' OR 'U' OR 'Z'
+                 CONTINUE
+             ELSE
+                 DISPLAY '**** PARM01 to userid not valued'
+                 MOVE +0300                   TO WS-RETURN-CODE.
+           IF WS-INIT = SPACE
+               DISPLAY '**** PARM01 initials not valued '
+               MOVE +0300                     TO WS-RETURN-CODE
+           ELSE
+           IF WS-INIT(2: 2) = SPACE
+               DISPLAY '**** PARM01 initials must be 2 or 3 characters'
+               MOVE +0300                     TO WS-RETURN-CODE.
+           IF WS-HOLD-DELAY NUMERIC
+               MOVE WS-HOLD-DELAY             TO WS-DELAY
+               IF WS-DELAY < 4
+                   DISPLAY '**** PARM01 delay value < 4'
+                   MOVE +0300                 TO WS-RETURN-CODE
+               ELSE
+               IF WS-DELAY > 30
+                   DISPLAY '**** PARM01 delay value > 30'
+                   MOVE +0300                 TO WS-RETURN-CODE
+               ELSE
+                   CONTINUE
+           ELSE
+               DISPLAY '**** PARM01 delay value not numeric: '
+                       WS-HOLD-DELAY
+               MOVE +0300                     TO WS-RETURN-CODE.
+
+      *---------------------------------------
+      *    load XXX...
+      *---------------------------------------
+       0300-LOAD-ACFRULI.
+           READ ACFRULI.
+           IF WS-STAT = 10
+               ADD 1                          TO WS-SUB1
+               MOVE WS-INTRDR-END             TO WS-LINE(WS-SUB1)
+               MOVE WS-SUB1                   TO WS-JCLTBL-MAX
+               GO TO 0300-LOAD-ACFRULI-EXIT
+           ELSE
+           IF WS-STAT > ZERO
+               DISPLAY '**** ACFRUL1 read error on ACFRULI'
+               DISPLAY '**** File stat = ' WS-STAT
+               MOVE +0300                     TO WS-RETURN-CODE
+               GO TO 0300-LOAD-ACFRULI-EXIT.
+
+           IF WS-SUB1 < 90
+               ADD 1                          TO WS-SUB1
+               PERFORM 0300-ACFRULI-FIELDS.
+
+           GO TO 0300-LOAD-ACFRULI.
+
+       0300-LOAD-ACFRULI-EXIT. EXIT.
+
+       0300-ACFRULI-FIELDS.
+           IF ACFRULI-RCD(1: 10) = '//ACFI080 '
+               MOVE WS-SUB1                   TO WS-I080
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 10) = '//ACFI132 '
+               MOVE WS-SUB1                   TO WS-I132
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 10) = '//ACFO080 '
+               MOVE WS-SUB1                   TO WS-O080
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 10) = '//ACFO132 '
+               MOVE WS-SUB1                   TO WS-O132
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 20) = '//             LIBR='
+               MOVE WS-SUB1                   TO WS-LIBR
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 21) = '//             TLREC='
+               MOVE WS-SUB1                   TO WS-TLREC
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 20) = '//             TBLK='
+               MOVE WS-SUB1                   TO WS-TBLK
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+           IF ACFRULI-RCD(1: 20) = '//             FLEN='
+               MOVE WS-SUB1                   TO WS-FLEN
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1)
+           ELSE
+               MOVE ACFRULI-RCD               TO WS-LINE(WS-SUB1).
+
+      *---------------------------------------
+      *    X
+      *---------------------------------------
+       1000-PROCESS-FNDRULE.
+           IF WS-RETURN-CODE = ZERO
+               PERFORM 1100-GET-FNDRULE
+                   UNTIL END-OF-FNDRULE.
+
+       1100-GET-FNDRULE.
+           PERFORM 1100-READ-FNDRULE.
+           IF MORE-FNDRULE-RCDS
+               PERFORM 1200-FIND-DSN-AND-SUBMIT.
+
+       1100-READ-FNDRULE.
+           READ FNDRULE.
+           IF WS-STAT = ZERO
+               ADD 1                          TO WS-READ-FNDRULE-CNT
+           ELSE
+           IF WS-STAT = 10
+               MOVE 'Y'                       TO WS-END-FNDRULE-SW
+           ELSE
+               DISPLAY '**** ACFRUL1 read error on FNDRULE '
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE +1100                     TO WS-RETURN-CODE.
+
+      *---------------------------------------
+      *    X
+      *---------------------------------------
+       1200-FIND-DSN-AND-SUBMIT.
+           MOVE SPACE                         TO WS-DSN-FND-SW.
+           IF FNDRULE-RCD(30: 7) = ' DSN = '
+               PERFORM 1300-CLEAR-PREVIOUS-VALUES
+               PERFORM 1300-PLACE-DSN-INTO-TABLE
+               IF WS-DSN-FND-SW = SPACE
+                   PERFORM 1400-SLIGHT-DELAY
+                   PERFORM 1400-SEND-TABLE-TO-INTRDR
+                   PERFORM 1500-GENERATE-COMPILE.
+
+       1300-CLEAR-PREVIOUS-VALUES.
+           MOVE SPACE            TO WS-LINE(WS-FLEN)(21: ).
+           MOVE SPACE            TO WS-LINE(WS-TLREC)(22: ).
+           MOVE SPACE            TO WS-LINE(WS-TBLK)(21: ).
+           MOVE SPACE            TO WS-LINE(WS-LIBR)(21: ).
+
+       1300-PLACE-DSN-INTO-TABLE.
+           MOVE SPACE            TO WS-UNSTR1 WS-UNSTR2 WS-UNSTR3.
+           UNSTRING FNDRULE-DSN DELIMITED BY ' '
+               INTO WS-UNSTR1 WS-UNSTR2 WS-UNSTR3.
+           MOVE WS-UNSTR1        TO WS-HOLD-DSN.
+           MOVE WS-QUOTE         TO WS-LINE(WS-LIBR)(21: 1).
+           MOVE WS-UNSTR1        TO WS-LINE(WS-LIBR)(22: ).
+           INSPECT WS-LINE-P2(WS-LIBR) REPLACING FIRST ' '
+                                              BY WS-QUOTE.
+
+           MOVE '00000'          TO WS-LRECL.
+           MOVE SPACE            TO WS-UNSTR1 WS-UNSTR2 WS-UNSTR3.
+           UNSTRING FNDRULE-DSN DELIMITED BY '('
+               INTO WS-UNSTR1 WS-UNSTR2 WS-UNSTR3.
+
+           PERFORM VARYING WS-SUB2 FROM 1 BY 1
+               UNTIL WS-SUB2 > WS-PARM01-MAX
+               IF WS-UNSTR1 = WS-P1-DSN(WS-SUB2)
+                   MOVE WS-QUOTE TO WS-LINE(WS-TLREC)(22: 1)
+                   MOVE WS-P1-LRECL(WS-SUB2)
+                                 TO WS-LINE(WS-TLREC)(23: 5)
+                   INSPECT WS-LINE-P2(WS-TLREC) REPLACING FIRST '  '
+                                                  BY WS-QUOTE-COMMA
+                   MOVE WS-QUOTE TO WS-LINE(WS-TBLK)(21: 1)
+                   MOVE WS-P1-BLKSIZE(WS-SUB2)
+                                 TO WS-LINE(WS-TBLK)(22: 5)
+                   INSPECT WS-LINE-P2(WS-TBLK) REPLACING FIRST '  '
+                                                  BY WS-QUOTE-COMMA
+                   MOVE WS-P1-LRECL(WS-SUB2)  TO WS-LRECL
+                   MOVE 50                    TO WS-SUB2
+               END-IF
+           END-PERFORM.
+
+      *---------------------------------------
+      *    if a match is not found in the table, guess
+      *    at a correct LRECL and BLKSIZE
+      *---------------------------------------
+           IF WS-SUB2 < 50
+               DISPLAY '**** DSN in FINDRULE not found in PARM01.'
+               DISPLAY '****     DSN is ' WS-UNSTR1
+               DISPLAY '****     Add DSN and Lrecl and Blksize'
+                       ' to PARM01.'
+               MOVE 'N'                       TO WS-DSN-FND-SW
+               MOVE 'Y'                       TO WS-DSN-ERR-SW.
+
+           IF WS-LRECL = '00080'
+               MOVE WS-QUOTE            TO WS-LINE(WS-FLEN)(21: 1)
+               MOVE '8'                 TO WS-LINE(WS-FLEN)(22: 1)
+               INSPECT WS-LINE-P2(WS-FLEN) REPLACING FIRST '  '
+                                              BY WS-QUOTE-COMMA
+               MOVE 'DISP=SHR,DSN=&LIBR'
+                                        TO WS-LINE(WS-I080)(16: )
+               MOVE 'DUMMY                   '
+                                        TO WS-LINE(WS-I132)(16: )
+               MOVE 'DSN=&&ACFTMP,'
+                                        TO WS-LINE(WS-O080)(16: )
+               MOVE 'DUMMY              '
+                                        TO WS-LINE(WS-O132)(16: )
+               MOVE WS-O080             TO WS-SUB2
+               ADD 1                    TO WS-SUB2
+               PERFORM 1300-UNZAP-JCL-LINES
+               MOVE WS-O132             TO WS-SUB2
+               ADD 1                    TO WS-SUB2
+               PERFORM 1300-ZAP-JCL-LINES.
+           IF WS-LRECL = '00132'
+               MOVE WS-QUOTE            TO WS-LINE(WS-FLEN)(21: 1)
+               MOVE '2'                 TO WS-LINE(WS-FLEN)(22: 1)
+               INSPECT WS-LINE-P2(WS-FLEN) REPLACING FIRST '  '
+                                              BY WS-QUOTE-COMMA
+               MOVE 'DUMMY                   '
+                                        TO WS-LINE(WS-I080)(16: )
+               MOVE 'DISP=SHR,DSN=&LIBR'
+                                        TO WS-LINE(WS-I132)(16: )
+               MOVE 'DUMMY              '
+                                        TO WS-LINE(WS-O080)(16: )
+               MOVE 'DSN=&&ACFTMP,'
+                                        TO WS-LINE(WS-O132)(16: )
+               MOVE WS-O132             TO WS-SUB2
+               ADD 1                    TO WS-SUB2
+               PERFORM 1300-UNZAP-JCL-LINES
+               MOVE WS-O080             TO WS-SUB2
+               ADD 1                    TO WS-SUB2
+               PERFORM 1300-ZAP-JCL-LINES.
+
+       1300-ZAP-JCL-LINES.
+           PERFORM VARYING WS-SUB2 FROM WS-SUB2 BY 1
+               UNTIL WS-SUB2 > WS-JCLTBL-MAX
+               IF WS-LINE(WS-SUB2)(3: 5) = SPACE
+                   MOVE '//* '          TO WS-LINE(WS-SUB2)(1: 4)
+               ELSE
+                   MOVE WS-JCLTBL-MAX   TO WS-SUB2
+               END-IF
+           END-PERFORM.
+
+       1300-UNZAP-JCL-LINES.
+           PERFORM VARYING WS-SUB2 FROM WS-SUB2 BY 1
+               UNTIL WS-SUB2 > WS-JCLTBL-MAX
+               IF WS-LINE(WS-SUB2)(1: 4) = '//* '
+                   MOVE '//  '          TO WS-LINE(WS-SUB2)(1: 4)
+               ELSE
+                   MOVE WS-JCLTBL-MAX   TO WS-SUB2
+               END-IF
+           END-PERFORM.
+
+       1400-SLIGHT-DELAY.
+           MOVE WS-DELAY                TO NEWWAIT-DELAY.
+           CALL 'NEWWAIT' USING NEWWAIT-DATA.
+
+       1400-SEND-TABLE-TO-INTRDR.
+           PERFORM VARYING WS-SUB1 FROM 1 BY 1
+               UNTIL WS-SUB1 > WS-JCLTBL-MAX
+               MOVE WS-LINE(WS-SUB1)          TO ACFRULO-RCD
+               PERFORM 3000-WRITE-ACFRULO
+           END-PERFORM.
+           ADD 1                              TO WS-JOB-CNT.
+
+      *    COMP 'MIS068.LOF.RULES.ALL(        )' NOLIST STOR
+       1500-GENERATE-COMPILE.
+           IF FIRST-RECORD
+               MOVE SPACE                     TO ACFCMPO-RCD
+               PERFORM 3000-WRITE-ACFCMPO
+               MOVE 'SET RULE'                TO ACFCMPO-RCD
+               PERFORM 3000-WRITE-ACFCMPO
+               MOVE 'N'                       TO WS-FIRST-RCD-SW.
+           MOVE SPACE                         TO ACFCMPO-RCD.
+
+      *    when creating compile statements for members,
+      *    compile 'to' userid member rather than 'from' member
+           IF WS-PROCESS = 'C'
+               MOVE SPACE        TO WS-UNSTR1 WS-UNSTR2 WS-UNSTR3
+               UNSTRING WS-HOLD-DSN DELIMITED BY '('
+                   INTO WS-UNSTR1 WS-UNSTR2 WS-UNSTR3
+               IF WS-UNSTR2 = WS-USERF
+                   MOVE SPACE                 TO WS-HOLD-DSN
+                   STRING WS-UNSTR1           DELIMITED BY ' '
+                          '('                 DELIMITED BY SIZE
+                          WS-USERT            DELIMITED BY SIZE
+                          INTO WS-HOLD-DSN.
+           STRING 'COMP '                     DELIMITED BY SIZE
+                  WS-QUOTE                    DELIMITED BY SIZE
+                  WS-HOLD-DSN                 DELIMITED BY ' '
+                  WS-QUOTE                    DELIMITED BY SIZE
+                  ' NOLIST STOR'              DELIMITED BY SIZE
+                  INTO ACFCMPO-RCD.
+           PERFORM 3000-WRITE-ACFCMPO.
+
+       3000-WRITE-ACFRULO.
+           WRITE ACFRULO-RECORD.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 write error on ACFRULO'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE 'Y'                       TO WS-END-FNDRULE-SW
+               MOVE +3000                     TO WS-RETURN-CODE.
+
+       3000-WRITE-ACFCMPO.
+           WRITE ACFCMPO-RECORD.
+           IF WS-STAT NOT = ZERO
+               DISPLAY '**** ACFRUL1 write error on ACFCMPO'
+               DISPLAY '**** File stat           ' WS-STAT
+               MOVE 'Y'                       TO WS-END-FNDRULE-SW
+               MOVE +3000                     TO WS-RETURN-CODE.
+
+      ************************************ END ACFRUL1
+

@@ -1,0 +1,43 @@
+//useridR  JOB (5000,'userid ACFRULE'),'ACF rule alteration',
+//             CLASS=S,MSGCLASS=R
+//*-------------------------------------------------
+//*
+//*  !!   DO NOT SUBMIT prior to:
+//*  !!
+//*  !!   Validating contents of ACFRULF output
+//*  !!   Updating PARM01 parameters
+//*
+//*  This job loops through FINDRULE output and generates
+//*  jobs to clone userid's within ACF rules, or to remove
+//*  or comment userid entries.
+//*
+//*-------------------------------------------------
+//JCLPROC  PROC
+//*-------------------------------------------------
+//*  reset ACFSUMO job status tracking parm
+//*-------------------------------------------------
+//S010     EXEC PGM=IEBGENER,REGION=4096K
+//SYSPRINT DD  SYSOUT=*
+//SYSIN    DD  DUMMY
+//SYSUT1   DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFSUMH)
+//SYSUT2   DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFSUMO)
+//*-------------------------------------------------
+//*  submit ACFRULJ jobs, one for each rule containing "from" userid
+//*  build ACF rule compile statements in ACFCMPO
+//*-------------------------------------------------
+//S020     EXEC PGM=ACFRUL1,REGION=40M,
+//             COND=(0,NE),
+//             PARM='          /'
+//STEPLIB  DD  DISP=SHR,DSN=userid.ISPF.OBJ
+//SYSPRINT DD  SYSOUT=*
+//SYSOUT   DD  SYSOUT=*
+//SYSUDUMP DD  SYSOUT=*
+//FNDRULE  DD  DISP=SHR,DSN=userid.JOB.OUTPUT
+//PARM01   DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFRULP)
+//ACFCMPO  DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFCMPO)
+//ACFRULI  DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFRULJ)
+//ACFRULO  DD  SYSOUT=(A,INTRDR)
+//*-------------------------------------------------
+//         PEND
+//J010     EXEC JCLPROC
+//*-------------------------------------------------

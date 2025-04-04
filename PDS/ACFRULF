@@ -1,0 +1,45 @@
+//useridF  JOB (5000,4TH),'job comments',CLASS=S,MSGCLASS=R,
+//             REGION=4096K
+//*
+//*-------------------------------------------------
+//*  Fileaid search jcl
+//*
+//*  Loop through libraries referenced by DD01
+//*  searching for string referenced by SELRECIF
+//*-------------------------------------------------
+//J0010    EXEC PGM=IEFBR14
+//SYSPRINT DD  SYSOUT=*
+//DD01     DD  DSN=userid.JOB.OUTPUT,
+//             DISP=(MOD,DELETE,DELETE),
+//             SPACE=(TRK,(1,2)),UNIT=LOFDA
+//*-------------------------------------------------
+//J0020    EXEC PGM=CAWABATC
+//SYSPRINT DD  SYSOUT=*
+//SYSLIST  DD  DSN=userid.JOB.OUTPUT,
+//             DISP=(NEW,CATLG,DELETE),
+//             SPACE=(TRK,(1,2)),UNIT=LOFDA,
+//             LRECL=133,BLKSIZE=19950,DSORG=PS,RECFM=FB
+//SYSTOTAL DD  SYSOUT=*
+//SYSUDUMP DD  SYSOUT=*
+//ABNLIGNR DD  DUMMY
+//DD01     DD  DISP=SHR,DSN=userid.LOF.RULES.ALL                   *shr
+//         DD  DISP=SHR,DSN=userid.ACF2.RRULELFP.CNTL              *shr
+//         DD  DISP=SHR,DSN=userid.ACF2.RRULELFT.CNTL              *shr
+//         DD  DISP=SHR,DSN=userid.ACF2.RRULELKP.CNTL              *shr
+//         DD  DISP=SHR,DSN=userid.ACF2.RRULELPP.CNTL              *shr
+//         DD  DISP=SHR,DSN=userid.ACF2.CNTL                       *shr
+//         DD  DISP=SHR,DSN=userid.ACF2.SYSTEM                     *shr
+//         DD  DISP=SHR,DSN=userid.CA7.CNTL                        *shr
+//SYSIN    DD *
+ PRINT FORMAT(LIST),
+   INFILE(DD01),
+   SELRECIF(1,0,C"search string)"),
+    OUTLIM(99999)
+//*
+//*-------------------------------------------------
+//*    SELRECIF(1,0,C"from  userid)"),     process C D M Z
+//*    SELRECIF(1,0,C"03/28/24FL)"),       process U
+//*    SELRECIF(1,0,C"03/28/24FML)"),      process U
+//*    SELRECIF(1,0,C"03/28/24 FL)"),      process U
+//*    SELRECIF(1,0,C"03/28/24 FML)"),     process U
+//*-------------------------------------------------

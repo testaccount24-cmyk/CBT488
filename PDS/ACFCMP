@@ -1,0 +1,28 @@
+/*PRIORITY     01
+//useridC  JOB (5000,'ACF2 COMPILE'),
+//             'ACF2 COMPILE',
+//             CLASS=A,
+//             MSGCLASS=R,
+//             MSGLEVEL=(1,1)
+//*
+//*  Compile ACF2 statements within ACFCMPO (built by ACFRULE)
+//*
+/*ROUTE   PRINT DEVEL
+/*JOBPARM PROCLIB=PROC23,S=ANY
+//ACFJOB   EXEC PGM=ACFBATCH
+//SYSPRINT DD  SYSOUT=*
+//*********************************************************************
+//*  Notes:  search for 'TERMINATING' to find errors causing code 0004
+//*
+//*  Pick the desired ACF2 control cards from below...
+//*
+//*  COMP 'MIS068.LOF.RULES.ALL(        )' NOLIST STOR
+//*  COMP 'MIS065.ACF2.RRULELFP.CNTL(        )' NOLIST STOR
+//*
+//*  C ' )' ')'
+//*********************************************************************
+//*
+//*
+//SYSIN    DD  DISP=SHR,DSN=userid.ISPF.FILE488(ACFCMPO)
+//*
+//*
